@@ -21,16 +21,16 @@ SCREENSHOT_DIR = CONFIG_DIR / "screenshots_web"
 SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
 PUBLIC_IP_FILE = CONFIG_DIR / "public_ip.env"
 FIREFOX_COOKIE_DB = Path(os.getenv("FIREFOX_COOKIE_DB", "")) if os.getenv("FIREFOX_COOKIE_DB") else None
-ALLOWED_SCHEMES = {"http", "https"}  # 只支持 http/https
+ALLOWED_SCHEMES = {"http", "https"}  # 仅允许 http 和 https
 
 
 def load_allowed_domains() -> list[str]:
-    """仅从截图白名单文件加载域名，不再合并 Cookie 白名单。"""
+    """加载截图访问白名单（仅从 WHITELIST_PATH 读取）。"""
     if not WHITELIST_PATH.exists():
         return []
     domains: list[str] = []
     for line in WHITELIST_PATH.read_text(encoding="utf-8").splitlines():
-        cleaned = line.strip().lower()
+        cleaned = line.strip()
         if cleaned and not cleaned.startswith("#"):
             domains.append(cleaned)
     return sorted(set(domains))
@@ -39,13 +39,11 @@ def load_allowed_domains() -> list[str]:
 def load_blocked_domains() -> list[str]:
     if not BLACKLIST_PATH.exists():
         return []
-
     domains: list[str] = []
     for line in BLACKLIST_PATH.read_text(encoding="utf-8").splitlines():
-        cleaned = line.strip().lower()
+        cleaned = line.strip()
         if cleaned and not cleaned.startswith("#"):
             domains.append(cleaned)
-
     return sorted(set(domains))
 
 
@@ -71,53 +69,41 @@ def normalize_url(url: str) -> str:
 
 
 def get_navigation_wait_strategy(url: str) -> tuple[str, int]:
-    # 不再区分协议，统一使用 domcontentloaded
+    # 只处理 http/https，统一使用 domcontentloaded
     return "domcontentloaded", 60000
 
 
 async def navigate_to_page(page, url: str) -> None:
-    normalized = normalize_url(url)  # 已经确保 scheme 合法
-    wait_strategy, timeout_ms = get_navigation_wait_strategy(normalized)
+    normalized = normalize_url(url)  # 已确保 scheme 合法
     try:
-        await page.goto(normalized, wait_until=wait_strategy, timeout=timeout_ms)
+        await page.goto(normalized, wait_until="domcontentloaded", timeout=60000)
     except Exception as exc:
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Navigation warning for {normalized}: {exc}")
-        if wait_strategy == "commit":
-            await page.goto(normalized, wait_until="commit", timeout=10000)
-        else:
-            raise
+        # 若超时则继续，后续会尝试等待 load
+        # 不重新抛出，让上层继续
 
 
 def _pattern_matches(value: str, pattern: str) -> bool:
-    candidate = pattern.strip().lower()
-    if not candidate:
+    """纯正则匹配，pattern 中的 * 会被转换为 .* 作为通配符。"""
+    if not pattern:
         return False
-    if candidate == "*":
-        return True
-
-    normalized = value.strip().lower()
-    regex = re.escape(candidate).replace(r"\*", ".*")
+    # 将 * 转换为 .* 以支持通配
+    regex = re.escape(pattern).replace(r"\*", ".*")
     try:
-        if re.fullmatch(regex, normalized):
-            return True
+        return bool(re.fullmatch(regex, value, re.IGNORECASE))
     except re.error:
         return False
 
-    if normalized == candidate or normalized.endswith(f".{candidate}"):
-        return True
-
-    return False
-
 
 def is_domain_allowed(url: str) -> bool:
-    """检查 URL 是否在截图白名单中（仅 WHITELIST_PATH）。"""
+    """检查 URL 是否允许截图访问（白名单/黑名单均基于正则）。"""
     normalized = normalize_url(url)
     parsed = urlparse(normalized)
     hostname = (parsed.hostname or "").lower()
     scheme = (parsed.scheme or "").lower()
 
-    blocked_domains = load_blocked_domains()
-    for pattern in blocked_domains:
+    # 先检查黑名单
+    for pattern in load_blocked_domains():
         if _pattern_matches(normalized, pattern):
             return False
         if hostname and _pattern_matches(hostname, pattern):
@@ -125,8 +111,8 @@ def is_domain_allowed(url: str) -> bool:
         if scheme and _pattern_matches(scheme, pattern):
             return False
 
-    allowed_domains = load_allowed_domains()
-    for pattern in allowed_domains:
+    # 再检查白名单
+    for pattern in load_allowed_domains():
         if _pattern_matches(normalized, pattern):
             return True
         if hostname and _pattern_matches(hostname, pattern):
@@ -137,27 +123,26 @@ def is_domain_allowed(url: str) -> bool:
     return False
 
 
-# ---------- Cookie 白名单独立函数 ----------
+# ---------- Cookie 白名单（独立） ----------
 def load_cookie_allowed_domains() -> list[str]:
-    """只从 COOKIE_WHITELIST_PATH 加载域名。"""
+    """只从 COOKIE_WHITELIST_PATH 加载，用于决定是否注入 Cookie。"""
     if not COOKIE_WHITELIST_PATH.exists():
         return []
     domains = []
     for line in COOKIE_WHITELIST_PATH.read_text(encoding="utf-8").splitlines():
-        cleaned = line.strip().lower()
+        cleaned = line.strip()
         if cleaned and not cleaned.startswith("#"):
             domains.append(cleaned)
     return sorted(set(domains))
 
 
 def is_cookie_allowed(url: str) -> bool:
-    """仅判断 URL 是否在 Cookie 白名单中（只使用 COOKIE_WHITELIST_PATH）。"""
+    """判断是否允许为该 URL 加载 Firefox Cookie（仅基于 Cookie 白名单）。"""
     normalized = normalize_url(url)
     parsed = urlparse(normalized)
     hostname = (parsed.hostname or "").lower()
     scheme = (parsed.scheme or "").lower()
-    allowed_domains = load_cookie_allowed_domains()
-    for pattern in allowed_domains:
+    for pattern in load_cookie_allowed_domains():
         if _pattern_matches(normalized, pattern):
             return True
         if hostname and _pattern_matches(hostname, pattern):
@@ -194,7 +179,6 @@ def mask_ip_in_text(text: str, ip_address: str) -> str:
 async def mask_ip_in_page(page, ip_address: str) -> None:
     if not ip_address:
         return
-
     await page.evaluate(
         """
         async (ip) => {
@@ -332,7 +316,7 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
             extra_http_headers={"Accept-Language": "en-US,en;q=0.9"}
         )
         try:
-            # 仅当域名在 Cookie 白名单中时加载 cookies
+            # Cookie 注入仅当域名在 Cookie 白名单中
             if is_cookie_allowed(normalized):
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Domain is in cookie whitelist, attempting to load Firefox cookies")
                 cookies = load_firefox_cookies(hostname)
@@ -345,7 +329,7 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
                             "domain": cookie["host"],
                             "path": cookie["path"] or "/",
                             "secure": bool(cookie.get("isSecure", cookie.get("secure", 0))),
-                            "httpOnly": False,
+                            "httpOnly": bool(cookie["isHttpOnly"])
                             "sameSite": "Lax",
                         }
                         expiry = cookie.get("expiry")
@@ -353,16 +337,12 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
                             expiry_seconds = int(expiry / 1000 if expiry > 1_000_000_000_000 else expiry)
                             if expiry_seconds > 0:
                                 payload["expires"] = expiry_seconds
-                            else:
-                                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Skipping invalid expiry for cookie {cookie['name']}@{cookie['host']}: {expiry}")
-                        else:
-                            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Skipping invalid expiry for cookie {cookie['name']}@{cookie['host']}: {expiry}")
                         cookie_payload.append(payload)
                     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Injecting {len(cookie_payload)} cookie(s) into context for {hostname}")
                     try:
                         await context.add_cookies(cookie_payload)
                     except Exception as exc:
-                        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Cookie injection failed, continuing without cookies: {exc}")
+                        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Cookie injection failed: {exc}")
                 else:
                     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] No cookies loaded for {hostname}")
             else:
@@ -381,7 +361,7 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
             try:
                 await page.wait_for_load_state("load", timeout=60000)
             except Exception as exc:
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Load state warning for {normalized}: {exc}")
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Load state warning: {exc}")
             await page.wait_for_timeout(2000)
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Page loaded, waiting for final render")
             try:
