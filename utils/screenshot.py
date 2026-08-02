@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+from datetime import datetime
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config"
@@ -115,7 +116,7 @@ async def navigate_to_page(page, url: str) -> None:
     try:
         await page.goto(normalized, wait_until=wait_strategy, timeout=timeout_ms)
     except Exception as exc:
-        print(f"[screenshot] Navigation warning for {normalized}: {exc}")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Navigation warning for {normalized}: {exc}")
         if wait_strategy == "commit":
             await page.goto(normalized, wait_until="commit", timeout=10000)
         else:
@@ -230,10 +231,10 @@ def _cookie_domain_matches(cookie_host: str, hostname: str) -> bool:
 def load_firefox_cookies(hostname: str, db_path: Path | None = None) -> list[dict]:
     db_file = db_path or FIREFOX_COOKIE_DB
     if db_file is None:
-        print("[screenshot] Firefox cookie DB path is not configured")
+        print("[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Firefox cookie DB path is not configured")
         return []
     if not db_file.exists():
-        print(f"[screenshot] Firefox cookie DB not found: {db_file}")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Firefox cookie DB not found: {db_file}")
         return []
 
     temp_db_path = None
@@ -246,7 +247,7 @@ def load_firefox_cookies(hostname: str, db_path: Path | None = None) -> list[dic
 
         cookie_hostname = _normalize_cookie_host(hostname)
         if not cookie_hostname:
-            print(f"[screenshot] Empty cookie hostname for input: {hostname!r}")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Empty cookie hostname for input: {hostname!r}")
             return []
 
         conn = sqlite3.connect(db_file)
@@ -266,17 +267,17 @@ def load_firefox_cookies(hostname: str, db_path: Path | None = None) -> list[dic
             if _cookie_domain_matches(row["host"], cookie_hostname)
         ]
         print(
-            f"[screenshot] Loaded {len(matched)} cookie(s) for hostname: {hostname} "
+            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Loaded {len(matched)} cookie(s) for hostname: {hostname} "
             f"(normalized: {cookie_hostname}) out of {len(rows)} total"
         )
         for row in matched:
             print(
-                f"[screenshot] cookie -> host={row['host']} name={row['name']} "
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] cookie -> host={row['host']} name={row['name']} "
                 f"path={row['path']} isSecure={row['isSecure']}"
             )
         return matched
     except Exception as exc:
-        print(f"[screenshot] Failed to load Firefox cookies: {exc}")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Failed to load Firefox cookies: {exc}")
         return []
     finally:
         if temp_db_path and temp_db_path.exists():
@@ -293,9 +294,9 @@ async def capture_screenshot_bytes(url: str) -> bytes:
 
     from playwright.async_api import async_playwright
 
-    print(f"[screenshot] Starting Firefox for {url}")
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Starting Firefox for {url}")
     async with async_playwright() as playwright:
-        print(f"[screenshot] Launching Firefox browser")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Launching Firefox browser")
         browser = await playwright.firefox.launch(
             headless=True,
             firefox_user_prefs={
@@ -341,40 +342,40 @@ async def capture_screenshot_bytes(url: str) -> bytes:
                         if expiry_seconds > 0:
                             payload["expires"] = expiry_seconds
                         else:
-                            print(f"[screenshot] Skipping invalid expiry for cookie {cookie['name']}@{cookie['host']}: {expiry}")
+                            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Skipping invalid expiry for cookie {cookie['name']}@{cookie['host']}: {expiry}")
                     else:
-                        print(f"[screenshot] Skipping invalid expiry for cookie {cookie['name']}@{cookie['host']}: {expiry}")
+                        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Skipping invalid expiry for cookie {cookie['name']}@{cookie['host']}: {expiry}")
                     cookie_payload.append(payload)
-                print(f"[screenshot] Injecting {len(cookie_payload)} cookie(s) into context for {hostname}")
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Injecting {len(cookie_payload)} cookie(s) into context for {hostname}")
                 try:
                     await context.add_cookies(cookie_payload)
                 except Exception as exc:
-                    print(f"[screenshot] Cookie injection failed, continuing without cookies: {exc}")
-                    print(f"[screenshot] Fallback reason: Playwright rejected the injected cookie payload for {hostname}")
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Cookie injection failed, continuing without cookies: {exc}")
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Fallback reason: Playwright rejected the injected cookie payload for {hostname}")
                     cookie_payload = []
             else:
-                print(f"[screenshot] No cookies injected for {hostname}")
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] No cookies injected for {hostname}")
 
             page = await context.new_page()
-            print(f"[screenshot] Opening page: {normalized}")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Opening page: {normalized}")
             await navigate_to_page(page, normalized)
 
             try:
                 await page.wait_for_load_state("load", timeout=60000)
             except Exception as exc:
-                print(f"[screenshot] Load state warning for {normalized}: {exc}")
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Load state warning for {normalized}: {exc}")
             await page.wait_for_timeout(2000)
-            print(f"[screenshot] Page loaded, waiting for final render")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Page loaded, waiting for final render")
             try:
                 public_ip = get_public_ip()
             except Exception as exc:
-                print(f"[screenshot] Failed to resolve public IP, continuing without masking: {exc}")
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Failed to resolve public IP, continuing without masking: {exc}")
                 public_ip = ""
             if public_ip:
                 await mask_ip_in_page(page, public_ip)
-            print(f"[screenshot] Capturing screenshot")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Capturing screenshot")
             image_bytes = await page.screenshot(full_page=False)
-            print(f"[screenshot] Screenshot captured, size={len(image_bytes)} bytes")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Screenshot captured, size={len(image_bytes)} bytes")
             return image_bytes
         finally:
             await context.close()

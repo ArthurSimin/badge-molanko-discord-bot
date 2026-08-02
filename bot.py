@@ -3,6 +3,9 @@ from discord.ext import commands
 import os
 import asyncio
 import sys
+import shutil
+import importlib
+import gc
 from dotenv import load_dotenv
 
 # ======================
@@ -161,6 +164,35 @@ class MyBot(commands.Bot):
         """Check if a cog (e.g. 'cogs.foo') is currently loaded."""
         return f"cogs.{cog_name}" in self.extensions
 
+    def _clear_cog_cache(self, cog_name):
+        """
+        Thoroughly remove all traces of a cog from memory and disk cache.
+        """
+        # 1. Remove module(s) from sys.modules
+        module_prefix = f"cogs.{cog_name}"
+        to_remove = [mod for mod in list(sys.modules.keys()) if mod == module_prefix or mod.startswith(module_prefix + ".")]
+        for mod in to_remove:
+            del sys.modules[mod]
+            print(f"Removed {mod} from sys.modules")
+
+        # 2. Force garbage collection to free any circular references
+        gc.collect()
+        print("Ran garbage collection")
+
+        # 3. Delete __pycache__ directory for that cog
+        cog_file_path = self._get_cog_files().get(cog_name, {}).get("file")
+        if cog_file_path and os.path.exists(cog_file_path):
+            pycache_dir = os.path.join(os.path.dirname(cog_file_path), "__pycache__")
+            if os.path.exists(pycache_dir):
+                try:
+                    shutil.rmtree(pycache_dir)
+                    print(f"Deleted {pycache_dir}")
+                except Exception as e:
+                    print(f"Failed to delete {pycache_dir}: {e}")
+        # 4. Invalidate importlib caches
+        importlib.invalidate_caches()
+        print("Invalidated importlib caches")
+
     # ---------- Command implementations ----------
 
     async def cmd_list(self):
@@ -180,40 +212,56 @@ class MyBot(commands.Bot):
             print(f"  {name}: {', '.join(status)}")
 
     async def cmd_reload(self, arg):
-        """Reload all cogs (skip disabled), or a specific cog."""
-        if arg is None:
-            # Reload all: unload all, then load all enabled .py files
-            print("Reloading all cogs...")
-            for ext in list(self.extensions.keys()):
+        """
+        Deep reload: unload, clear caches, delete __pycache__, then load.
+        Also syncs slash commands after reload.
+        """
+        async def reload_cog(name):
+            ext = f"cogs.{name}"
+            # Unload if loaded
+            if self._is_loaded(name):
                 try:
+                    # This will remove commands/listeners and call cog_unload
                     await self.unload_extension(ext)
                     print(f"Unloaded {ext}")
                 except Exception as e:
                     print(f"Failed unloading {ext}: {e}")
+                    return False
+            # Clear all caches
+            self._clear_cog_cache(name)
+            # Load
+            try:
+                await self.load_extension(ext)
+                print(f"Loaded {ext}")
+                return True
+            except Exception as e:
+                print(f"Failed loading {ext}: {e}")
+                return False
 
+        if arg is None:
+            print("Reloading all enabled cogs...")
             cog_info = self._get_cog_files()
             for name, info in cog_info.items():
                 if info["disabled"]:
+                    print(f"Skipping disabled cog: {name}")
                     continue
-                ext = f"cogs.{name}"
-                try:
-                    await self.load_extension(ext)
-                    print(f"Loaded {ext}")
-                except Exception as e:
-                    print(f"Failed loading {ext}: {e}")
+                await reload_cog(name)
         else:
-            ext = f"cogs.{arg}"
-            if arg not in self._get_cog_files():
+            cog_info = self._get_cog_files()
+            if arg not in cog_info:
                 print(f"Cog '{arg}' not found.")
                 return
-            if self._get_cog_files()[arg]["disabled"]:
+            if cog_info[arg]["disabled"]:
                 print(f"Cog '{arg}' is disabled. Enable it first.")
                 return
-            try:
-                await self.reload_extension(ext)
-                print(f"Reloaded {ext}")
-            except Exception as e:
-                print(f"Failed reloading {ext}: {e}")
+            await reload_cog(arg)
+
+        # After reloading, sync slash commands to reflect any command changes
+        try:
+            synced = await self.tree.sync()
+            print(f"Re-synced {len(synced)} slash command(s)")
+        except Exception as e:
+            print(f"Slash sync after reload failed: {e}")
 
     async def cmd_stop(self, arg):
         """Stop the bot (no arg), or unload a specific cog."""
@@ -264,6 +312,9 @@ class MyBot(commands.Bot):
         try:
             await self.load_extension(ext)
             print(f"Loaded {ext}")
+            # Optionally sync after loading
+            synced = await self.tree.sync()
+            print(f"Synced {len(synced)} slash command(s)")
         except Exception as e:
             print(f"Failed loading {ext}: {e}")
 
@@ -317,9 +368,7 @@ class MyBot(commands.Bot):
             print(f"Cog '{arg}' is already enabled.")
             return
 
-        # Rename back: .py.disabled -> .py
         old_path = cog_info[arg]["file"]
-        # The file should end with '.py.disabled', we replace that with '.py'
         if not old_path.endswith(".py.disabled"):
             print(f"Internal error: {old_path} does not end with .py.disabled")
             return
@@ -345,8 +394,8 @@ class MyBot(commands.Bot):
         help_text = """
 Available terminal commands:
   list                        - Show all cogs with status (loaded/unloaded, enabled/disabled)
-  reload                      - Unload all cogs and load all enabled .py files
-  reload <module>             - Reload a specific cog (must be enabled)
+  reload                      - Deep reload all enabled cogs (clears cache, __pycache__, GC)
+  reload <module>             - Deep reload a specific cog (must be enabled)
   stop                        - Gracefully shutdown the bot
   stop <module>               - Unload a specific cog
   load <module>               - Load a specific cog (must be enabled)
