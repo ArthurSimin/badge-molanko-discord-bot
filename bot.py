@@ -11,28 +11,17 @@ from dotenv import load_dotenv
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-ENV_FILE = os.path.join(
-    BASE_DIR,
-    "discord_bot.env"
-)
-
-COGS_DIR = os.path.join(
-    BASE_DIR,
-    "cogs"
-)
+ENV_FILE = os.path.join(BASE_DIR, "discord_bot.env")
+COGS_DIR = os.path.join(BASE_DIR, "cogs")
 
 # ======================
 # Load TOKEN
 # ======================
 
 load_dotenv(ENV_FILE)
-
 TOKEN = os.getenv("TOKEN")
-
 if not TOKEN:
-    raise ValueError(
-        "TOKEN not found in discord_bot.env"
-    )
+    raise ValueError("TOKEN not found in discord_bot.env")
 
 # ======================
 # Intents
@@ -47,28 +36,23 @@ intents = discord.Intents.default()
 class MyBot(commands.Bot):
 
     def __init__(self):
-        super().__init__(
-            command_prefix="!",
-            intents=intents
-        )
+        super().__init__(command_prefix="!", intents=intents)
         self._terminal_task = None
+        self._shutdown = False
 
     async def setup_hook(self):
         print("Loading cogs...")
 
         if os.path.exists(COGS_DIR):
             for filename in os.listdir(COGS_DIR):
-                if (
-                    filename.endswith(".py")
-                    and not filename.startswith("_")
-                ):
+                # Only load .py files (not .py.disabled)
+                if filename.endswith(".py") and not filename.startswith("_"):
                     extension = f"cogs.{filename[:-3]}"
                     try:
                         await self.load_extension(extension)
                         print(f"Loaded {extension}")
                     except Exception as e:
-                        print(f"Failed loading {extension}")
-                        print(e)
+                        print(f"Failed loading {extension}: {e}")
         else:
             print("cogs folder not found")
 
@@ -77,8 +61,7 @@ class MyBot(commands.Bot):
             synced = await self.tree.sync()
             print(f"Synced {len(synced)} slash command(s)")
         except Exception as e:
-            print("Slash sync failed:")
-            print(e)
+            print("Slash sync failed:", e)
 
     async def on_ready(self):
         print("========================")
@@ -90,11 +73,7 @@ class MyBot(commands.Bot):
             type=discord.ActivityType.watching,
             name="/time | /version"
         )
-
-        await self.change_presence(
-            status=discord.Status.online,
-            activity=activity
-        )
+        await self.change_presence(status=discord.Status.online, activity=activity)
 
         print("Bot is ONLINE!")
         print("========================")
@@ -105,7 +84,7 @@ class MyBot(commands.Bot):
     async def terminal_loop(self):
         """Read commands from stdin and execute them."""
         loop = asyncio.get_event_loop()
-        while True:
+        while not self._shutdown:
             try:
                 line = await loop.run_in_executor(None, sys.stdin.readline)
                 if not line:  # EOF
@@ -135,31 +114,70 @@ class MyBot(commands.Bot):
             await self.cmd_reload(arg)
         elif cmd == "stop":
             await self.cmd_stop(arg)
-        elif cmd == "start":
-            await self.cmd_start(arg)
+        elif cmd == "load":
+            await self.cmd_load(arg)
+        elif cmd == "disable":
+            await self.cmd_disable(arg)
+        elif cmd == "enable":
+            await self.cmd_enable(arg)
+        elif cmd == "sync":
+            await self.cmd_sync()
         elif cmd == "help":
             await self.cmd_help()
         else:
             print(f"Unknown command: {cmd}. Type 'help' for available commands.")
 
-    async def cmd_list(self):
-        """List loaded cogs and available cogs."""
-        loaded = list(self.extensions.keys())
-        print(f"Loaded cogs ({len(loaded)}): {', '.join(loaded) if loaded else 'none'}")
+    # ---------- Helper methods ----------
 
-        if os.path.exists(COGS_DIR):
-            available = [
-                f[:-3] for f in os.listdir(COGS_DIR)
-                if f.endswith(".py") and not f.startswith("_")
-            ]
-            print(f"Available cogs: {', '.join(available) if available else 'none'}")
-        else:
-            print("cogs folder not found")
+    def _get_cog_files(self):
+        """Return a dict: {cog_name: {'file': full_path, 'disabled': bool}}"""
+        result = {}
+        if not os.path.exists(COGS_DIR):
+            return result
+
+        for filename in os.listdir(COGS_DIR):
+            if filename.startswith("_"):
+                continue
+            if filename.endswith(".py"):
+                name = filename[:-3]
+                result[name] = {
+                    "file": os.path.join(COGS_DIR, filename),
+                    "disabled": False
+                }
+            elif filename.endswith(".py.disabled"):
+                name = filename[:-11]  # remove ".py.disabled"
+                result[name] = {
+                    "file": os.path.join(COGS_DIR, filename),
+                    "disabled": True
+                }
+        return result
+
+    def _is_loaded(self, cog_name):
+        """Check if a cog (e.g. 'cogs.foo') is currently loaded."""
+        return f"cogs.{cog_name}" in self.extensions
+
+    # ---------- Command implementations ----------
+
+    async def cmd_list(self):
+        """List all cog files with their status."""
+        cog_info = self._get_cog_files()
+        if not cog_info:
+            print("No cog files found.")
+            return
+
+        print("Cog status:")
+        for name, info in sorted(cog_info.items()):
+            loaded = self._is_loaded(name)
+            disabled = info["disabled"]
+            status = []
+            status.append("loaded" if loaded else "unloaded")
+            status.append("disabled" if disabled else "enabled")
+            print(f"  {name}: {', '.join(status)}")
 
     async def cmd_reload(self, arg):
-        """Reload all cogs, or a specific cog."""
+        """Reload all cogs (skip disabled), or a specific cog."""
         if arg is None:
-            # Reload all: unload all, then load all from directory
+            # Reload all: unload all, then load all enabled .py files
             print("Reloading all cogs...")
             for ext in list(self.extensions.keys()):
                 try:
@@ -168,22 +186,24 @@ class MyBot(commands.Bot):
                 except Exception as e:
                     print(f"Failed unloading {ext}: {e}")
 
-            if os.path.exists(COGS_DIR):
-                for filename in os.listdir(COGS_DIR):
-                    if (
-                        filename.endswith(".py")
-                        and not filename.startswith("_")
-                    ):
-                        ext = f"cogs.{filename[:-3]}"
-                        try:
-                            await self.load_extension(ext)
-                            print(f"Loaded {ext}")
-                        except Exception as e:
-                            print(f"Failed loading {ext}: {e}")
-            else:
-                print("cogs folder not found")
+            cog_info = self._get_cog_files()
+            for name, info in cog_info.items():
+                if info["disabled"]:
+                    continue
+                ext = f"cogs.{name}"
+                try:
+                    await self.load_extension(ext)
+                    print(f"Loaded {ext}")
+                except Exception as e:
+                    print(f"Failed loading {ext}: {e}")
         else:
             ext = f"cogs.{arg}"
+            if arg not in self._get_cog_files():
+                print(f"Cog '{arg}' not found.")
+                return
+            if self._get_cog_files()[arg]["disabled"]:
+                print(f"Cog '{arg}' is disabled. Enable it first.")
+                return
             try:
                 await self.reload_extension(ext)
                 print(f"Reloaded {ext}")
@@ -191,45 +211,139 @@ class MyBot(commands.Bot):
                 print(f"Failed reloading {ext}: {e}")
 
     async def cmd_stop(self, arg):
-        """Stop the bot (if no arg), or unload a specific cog."""
+        """Stop the bot (no arg), or unload a specific cog."""
         if arg is None:
+            # Graceful shutdown
             print("Shutting down bot...")
+            self._shutdown = True
+            if self._terminal_task and not self._terminal_task.done():
+                self._terminal_task.cancel()
+                try:
+                    await self._terminal_task
+                except asyncio.CancelledError:
+                    pass
             await self.close()
-            asyncio.get_event_loop().stop()
-            sys.exit(0)
+            # The main loop will exit naturally
         else:
             ext = f"cogs.{arg}"
+            if arg not in self._get_cog_files():
+                print(f"Cog '{arg}' not found.")
+                return
+            if not self._is_loaded(arg):
+                print(f"Cog '{arg}' is not loaded.")
+                return
             try:
                 await self.unload_extension(ext)
                 print(f"Unloaded {ext}")
             except Exception as e:
                 print(f"Failed unloading {ext}: {e}")
 
-    async def cmd_start(self, arg):
-        """Load a specific cog."""
+    async def cmd_load(self, arg):
+        """Load a specific cog (must be enabled, i.e., not .disabled)."""
         if arg is None:
-            print("Usage: start <module>")
+            print("Usage: load <module>")
             return
+
+        cog_info = self._get_cog_files()
+        if arg not in cog_info:
+            print(f"Cog '{arg}' not found.")
+            return
+        if cog_info[arg]["disabled"]:
+            print(f"Cog '{arg}' is disabled. Use 'enable {arg}' first.")
+            return
+        if self._is_loaded(arg):
+            print(f"Cog '{arg}' is already loaded.")
+            return
+
         ext = f"cogs.{arg}"
-        if not os.path.exists(os.path.join(COGS_DIR, f"{arg}.py")):
-            print(f"File {arg}.py not found in cogs directory.")
-            return
         try:
             await self.load_extension(ext)
             print(f"Loaded {ext}")
         except Exception as e:
             print(f"Failed loading {ext}: {e}")
 
+    async def cmd_disable(self, arg):
+        """Unload a cog and rename its file to .py.disabled."""
+        if arg is None:
+            print("Usage: disable <module>")
+            return
+
+        cog_info = self._get_cog_files()
+        if arg not in cog_info:
+            print(f"Cog '{arg}' not found.")
+            return
+        if cog_info[arg]["disabled"]:
+            print(f"Cog '{arg}' is already disabled.")
+            return
+
+        if self._is_loaded(arg):
+            ext = f"cogs.{arg}"
+            try:
+                await self.unload_extension(ext)
+                print(f"Unloaded {ext}")
+            except Exception as e:
+                print(f"Failed unloading {ext}: {e}")
+                return
+
+        old_path = cog_info[arg]["file"]
+        new_path = old_path + ".disabled"
+        try:
+            os.rename(old_path, new_path)
+            print(f"Disabled '{arg}' (renamed to {os.path.basename(new_path)})")
+        except Exception as e:
+            print(f"Failed to disable {arg}: {e}")
+
+    async def cmd_enable(self, arg):
+        """Remove .disabled suffix from a cog file and load it."""
+        if arg is None:
+            print("Usage: enable <module>")
+            return
+
+        cog_info = self._get_cog_files()
+        if arg not in cog_info:
+            print(f"Cog '{arg}' not found.")
+            return
+        if not cog_info[arg]["disabled"]:
+            print(f"Cog '{arg}' is already enabled.")
+            return
+
+        old_path = cog_info[arg]["file"]
+        new_path = old_path[:-11]  # remove ".py.disabled"
+        try:
+            os.rename(old_path, new_path)
+            print(f"Enabled '{arg}' (renamed to {os.path.basename(new_path)})")
+        except Exception as e:
+            print(f"Failed to enable {arg}: {e}")
+            return
+
+        ext = f"cogs.{arg}"
+        try:
+            await self.load_extension(ext)
+            print(f"Loaded {ext}")
+        except Exception as e:
+            print(f"Failed loading {ext}: {e}")
+
+    async def cmd_sync(self):
+        """Manually sync slash commands."""
+        try:
+            synced = await self.tree.sync()
+            print(f"Synced {len(synced)} slash command(s)")
+        except Exception as e:
+            print(f"Slash sync failed: {e}")
+
     async def cmd_help(self):
         """Print available commands."""
         help_text = """
 Available terminal commands:
-  list                        - Show loaded and available cogs
-  reload                      - Unload all cogs and load all from cogs folder
-  reload <module>             - Reload a specific cog (without .py)
-  stop                        - Shutdown the bot
+  list                        - Show all cogs with status (loaded/unloaded, enabled/disabled)
+  reload                      - Unload all cogs and load all enabled .py files
+  reload <module>             - Reload a specific cog (must be enabled)
+  stop                        - Gracefully shutdown the bot
   stop <module>               - Unload a specific cog
-  start <module>              - Load a specific cog
+  load <module>               - Load a specific cog (must be enabled)
+  disable <module>            - Unload and rename file to .py.disabled
+  enable <module>             - Rename .py.disabled back and load it
+  sync                        - Manually sync slash commands
   help                        - Show this help
 """
         print(help_text)
@@ -259,8 +373,7 @@ async def main():
     except discord.LoginFailure:
         print("Invalid TOKEN, please check discord_bot.env")
     except Exception as e:
-        print("Bot crashed:")
-        print(e)
+        print("Bot crashed:", e)
     finally:
         print("Bot stopped")
 

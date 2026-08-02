@@ -13,10 +13,10 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config"
-WHITELIST_PATH = CONFIG_DIR / "whitelist.txt"
-BLACKLIST_PATH = CONFIG_DIR / "blacklist.txt"
+WHITELIST_PATH = CONFIG_DIR / "screenshot_web_whitelist.txt"
+BLACKLIST_PATH = CONFIG_DIR / "screenshot_web_blacklist.txt"
 COOKIE_WHITELIST_PATH = CONFIG_DIR / "screenshot_web_whitelist_cookie.txt"
-SCREENSHOT_DIR = CONFIG_DIR / "screenshots"
+SCREENSHOT_DIR = CONFIG_DIR / "screenshots_web"
 SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
 FIREFOX_COOKIE_DB = Path(os.getenv("FIREFOX_COOKIE_DB", "")) if os.getenv("FIREFOX_COOKIE_DB") else None
 ALLOWED_SCHEMES = {"http", "https", "file", "ftp", "ftps", "sftp", "about"}
