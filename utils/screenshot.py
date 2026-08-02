@@ -19,6 +19,7 @@ BLACKLIST_PATH = CONFIG_DIR / "screenshot_web_blacklist.txt"
 COOKIE_WHITELIST_PATH = CONFIG_DIR / "screenshot_web_whitelist_cookie.txt"
 SCREENSHOT_DIR = CONFIG_DIR / "screenshots_web"
 SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+PUBLIC_IP_FILE = CONFIG_DIR / "public_ip.env"
 FIREFOX_COOKIE_DB = Path(os.getenv("FIREFOX_COOKIE_DB", "")) if os.getenv("FIREFOX_COOKIE_DB") else None
 ALLOWED_SCHEMES = {"http", "https", "file", "ftp", "ftps", "sftp", "about"}
 
@@ -203,9 +204,23 @@ def is_cookie_allowed(url: str) -> bool:
 
 
 def get_public_ip() -> str:
-    request = Request("https://api.ip.sb/ip", headers={"User-Agent": "curl/8.0"})
-    with urlopen(request, timeout=10) as response:
-        return response.read().decode("utf-8").strip()
+    """获取公网IP，优先从 ip.sb 获取并缓存，失败则读取缓存文件。"""
+    try:
+        request = Request("https://api.ip.sb/ip", headers={"User-Agent": "curl/8.0"})
+        with urlopen(request, timeout=10) as response:
+            ip = response.read().decode("utf-8").strip()
+        # 写入缓存
+        PUBLIC_IP_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PUBLIC_IP_FILE.write_text(ip, encoding="utf-8")
+        return ip
+    except Exception:
+        # 获取失败，尝试读取缓存
+        if PUBLIC_IP_FILE.exists():
+            cached = PUBLIC_IP_FILE.read_text(encoding="utf-8").strip()
+            if cached:
+                return cached
+        # 无缓存则重新抛出异常
+        raise
 
 
 def mask_ip_in_text(text: str, ip_address: str) -> str:
