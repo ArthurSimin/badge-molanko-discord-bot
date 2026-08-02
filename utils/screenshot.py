@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from datetime import datetime
+from fnmatch import fnmatch  # 用于 glob 匹配
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config"
@@ -21,7 +22,7 @@ SCREENSHOT_DIR = CONFIG_DIR / "screenshots_web"
 SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
 PUBLIC_IP_FILE = CONFIG_DIR / "public_ip.env"
 FIREFOX_COOKIE_DB = Path(os.getenv("FIREFOX_COOKIE_DB", "")) if os.getenv("FIREFOX_COOKIE_DB") else None
-ALLOWED_SCHEMES = {"http", "https"}  # 仅允许 http 和 https
+ALLOWED_SCHEMES = {"http", "https"}
 
 
 def load_allowed_domains() -> list[str]:
@@ -69,34 +70,41 @@ def normalize_url(url: str) -> str:
 
 
 def get_navigation_wait_strategy(url: str) -> tuple[str, int]:
-    # 只处理 http/https，统一使用 domcontentloaded
     return "domcontentloaded", 60000
 
 
 async def navigate_to_page(page, url: str) -> None:
-    normalized = normalize_url(url)  # 已确保 scheme 合法
+    normalized = normalize_url(url)
     try:
         await page.goto(normalized, wait_until="domcontentloaded", timeout=60000)
     except Exception as exc:
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Navigation warning for {normalized}: {exc}")
-        # 若超时则继续，后续会尝试等待 load
-        # 不重新抛出，让上层继续
 
 
 def _pattern_matches(value: str, pattern: str) -> bool:
-    """纯正则匹配，pattern 中的 * 会被转换为 .* 作为通配符。"""
+    """
+    混合匹配：
+      1. 如果 pattern 包含 '*'，则作为 glob 模式（使用 fnmatch）进行匹配（忽略大小写）。
+      2. 否则，若 value 等于 pattern（忽略大小写），或 value 以 .pattern 结尾（域名后缀匹配），则匹配。
+    """
     if not pattern:
         return False
-    # 将 * 转换为 .* 以支持通配
-    regex = re.escape(pattern).replace(r"\*", ".*")
-    try:
-        return bool(re.fullmatch(regex, value, re.IGNORECASE))
-    except re.error:
+    value_lower = value.lower()
+    pattern_lower = pattern.lower()
+    if '*' in pattern:
+        # 使用 glob 匹配（fnmatch 支持 * 和 ?，但仅用 *）
+        return fnmatch(value_lower, pattern_lower)
+    else:
+        # 精确匹配或后缀匹配
+        if value_lower == pattern_lower:
+            return True
+        if value_lower.endswith("." + pattern_lower):
+            return True
         return False
 
 
 def is_domain_allowed(url: str) -> bool:
-    """检查 URL 是否允许截图访问（白名单/黑名单均基于正则）。"""
+    """检查 URL 是否允许截图访问（白名单/黑名单均支持 glob 和后缀匹配）。"""
     normalized = normalize_url(url)
     parsed = urlparse(normalized)
     hostname = (parsed.hostname or "").lower()
@@ -137,24 +145,23 @@ def load_cookie_allowed_domains() -> list[str]:
 
 
 def is_cookie_allowed(url: str) -> bool:
-    """判断是否允许为该 URL 加载 Firefox Cookie（仅基于 Cookie 白名单）。"""
+    """
+    判断是否允许为该 URL 加载 Firefox Cookie。
+    仅匹配 hostname（不匹配 scheme 或完整 URL），支持 glob 和后缀匹配。
+    """
     normalized = normalize_url(url)
     parsed = urlparse(normalized)
     hostname = (parsed.hostname or "").lower()
-    scheme = (parsed.scheme or "").lower()
+    if not hostname:
+        return False
     for pattern in load_cookie_allowed_domains():
-        if _pattern_matches(normalized, pattern):
-            return True
-        if hostname and _pattern_matches(hostname, pattern):
-            return True
-        if scheme and _pattern_matches(scheme, pattern):
+        if _pattern_matches(hostname, pattern):
             return True
     return False
 # -------------------------------------------------------
 
 
 def get_public_ip() -> str:
-    """获取公网IP，优先从 ip.sb 获取并缓存，失败则读取缓存文件。"""
     try:
         request = Request("https://api.ip.sb/ip", headers={"User-Agent": "curl/8.0"})
         with urlopen(request, timeout=10) as response:
@@ -239,8 +246,9 @@ def load_firefox_cookies(hostname: str, db_path: Path | None = None) -> list[dic
 
         conn = sqlite3.connect(db_file)
         conn.row_factory = sqlite3.Row
+        # 添加 isHttpOnly 字段
         rows = conn.execute(
-            "SELECT host, name, value, path, isSecure, expiry FROM moz_cookies"
+            "SELECT host, name, value, path, isSecure, isHttpOnly, expiry FROM moz_cookies"
         ).fetchall()
         conn.close()
 
@@ -256,7 +264,7 @@ def load_firefox_cookies(hostname: str, db_path: Path | None = None) -> list[dic
         for row in matched:
             print(
                 f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] cookie -> host={row['host']} name={row['name']} "
-                f"path={row['path']} isSecure={row['isSecure']}"
+                f"path={row['path']} isSecure={row['isSecure']} isHttpOnly={row.get('isHttpOnly', 0)}"
             )
         return matched
     except Exception as exc:
@@ -328,8 +336,8 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
                             "value": cookie["value"],
                             "domain": cookie["host"],
                             "path": cookie["path"] or "/",
-                            "secure": bool(cookie.get("isSecure", cookie.get("secure", 0))),
-                            "httpOnly": bool(cookie["isHttpOnly"])
+                            "secure": bool(cookie.get("isSecure", 0)),
+                            "httpOnly": bool(cookie.get("isHttpOnly", 0)),  # 新增
                             "sameSite": "Lax",
                         }
                         expiry = cookie.get("expiry")
