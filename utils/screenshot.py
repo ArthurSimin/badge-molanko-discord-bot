@@ -211,7 +211,7 @@ def get_public_ip() -> str:
 def mask_ip_in_text(text: str, ip_address: str) -> str:
     if not ip_address or ip_address not in text:
         return text
-    return text.replace(ip_address, "*.*.*.*")
+    return text.replace(ip_address, "**.**.**.**")
 
 
 async def mask_ip_in_page(page, ip_address: str) -> None:
@@ -402,6 +402,13 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
             page = await context.new_page()
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Opening page: {normalized}")
             await navigate_to_page(page, normalized)
+
+            # ---- 检查重定向后的最终 URL 是否仍在白名单且不在黑名单 ----
+            current_url = page.url
+            if not is_domain_allowed(current_url):
+                error_msg = f"Final URL after redirect '{current_url}' is not allowed"
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] {error_msg}")
+                raise ValueError(error_msg)
 
             try:
                 await page.wait_for_load_state("load", timeout=60000)
