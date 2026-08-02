@@ -8,5 +8,24 @@
 myaccount.google.com
 mail.google.com
 gemini.google.com
+outlook.com
+outlook.live.com
+
+iplark.com
+ping0.cc
+ip.sb
+ipinfo.io
+ipip.net
+ip138.com
+ipcheck.ing
+scamalytics.com
+ipqualityscore.com
+ipdata.co
+ip.skk.moe
+ip.gs
+ip-api.com
+test-ipv6.com
+bgp.he.net
+bgp.tools
 
 ^(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|127\.0\.0\.1)$

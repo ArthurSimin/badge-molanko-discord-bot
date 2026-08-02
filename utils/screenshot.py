@@ -352,6 +352,10 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
                 #"pdfjs.disabled": True
                 "toolkit.telemetry.enabled": False,
                 "datareporting.healthreport.uploadEnabled": False,
+                "geo.enabled": False,
+                "permissions.default.geo": 0,
+                "geo.provider.network.url": "",
+                "geo.provider.use_os_location": False,
             },
         )
         context = await browser.new_context(
