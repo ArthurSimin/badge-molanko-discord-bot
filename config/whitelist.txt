@@ -1,0 +1,5 @@
+github.com
+modrinth.com
+youtube.com
+google.com
+bilibili.com

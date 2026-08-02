@@ -1,0 +1,49 @@
+import discord
+from discord.ext import commands
+from dotenv import load_dotenv
+import os
+import asyncio
+
+load_dotenv("discord_bot.env")
+
+TOKEN = os.getenv("TOKEN")
+VERSION = "1.2.0"
+
+if not TOKEN:
+    raise ValueError("TOKEN not found in discord_bot.env")
+
+intents = discord.Intents.default()
+intents.presences = True
+
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    print("------")
+
+    activity = discord.Activity(
+        type=discord.ActivityType.watching,
+        name="/time | /version"
+    )
+    await bot.change_presence(status=discord.Status.online, activity=activity)
+
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} slash command(s)")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
+
+async def load_cogs():
+    for filename in os.listdir("./cogs"):
+        if filename.endswith(".py") and filename != "__init__.py":
+            await bot.load_extension(f"cogs.{filename[:-3]}")
+            print(f"Loaded cog: {filename}")
+
+async def main():
+    async with bot:
+        await load_cogs()
+        await bot.start(TOKEN)
+
+if __name__ == "__main__":
+    asyncio.run(main())
