@@ -311,7 +311,13 @@ def load_firefox_cookies(hostname: str, db_path: Path | None = None) -> list[dic
             shutil.rmtree(temp_db_path.parent, ignore_errors=True)
 
 
-async def capture_screenshot_bytes(url: str) -> bytes:
+async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 720) -> bytes:
+    # 校验分辨率范围
+    if not (640 <= width <= 1920):
+        raise ValueError(f"Width must be between 640 and 1920, got {width}")
+    if not (480 <= height <= 1080):
+        raise ValueError(f"Height must be between 480 and 1080, got {height}")
+
     if not is_domain_allowed(url):
         raise ValueError("Target domain is not in the whitelist")
 
@@ -321,7 +327,7 @@ async def capture_screenshot_bytes(url: str) -> bytes:
 
     from playwright.async_api import async_playwright
 
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Starting Firefox for {url}")
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Starting Firefox for {url} with viewport {width}x{height}")
     async with async_playwright() as playwright:
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Launching Firefox browser")
         browser = await playwright.firefox.launch(
@@ -349,7 +355,7 @@ async def capture_screenshot_bytes(url: str) -> bytes:
             },
         )
         context = await browser.new_context(
-            viewport={"width": 1280, "height": 720},
+            viewport={"width": width, "height": height},  # 使用传入的分辨率
             locale="en-US",
             timezone_id="UTC",
             extra_http_headers={"Accept-Language": "en-US,en;q=0.9"}
@@ -429,6 +435,7 @@ async def capture_screenshot(url: str, output_path: Path | None = None) -> Path:
         output_path = SCREENSHOT_DIR / file_name
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    image_bytes = await capture_screenshot_bytes(normalized)
+    # 使用默认分辨率（如需自定义，请调用 capture_screenshot_bytes 并传入相应参数）
+    image_bytes = await capture_screenshot_bytes(normalized)  # 这里保留默认
     output_path.write_bytes(image_bytes)
     return output_path
