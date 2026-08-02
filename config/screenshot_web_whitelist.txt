@@ -4,3 +4,4 @@ youtube.com
 google.com
 bilibili.com
 about:*
+time.is

@@ -130,7 +130,11 @@ class MyBot(commands.Bot):
     # ---------- Helper methods ----------
 
     def _get_cog_files(self):
-        """Return a dict: {cog_name: {'file': full_path, 'disabled': bool}}"""
+        """
+        Return a dict: {cog_name: {'file': full_path, 'disabled': bool}}
+        - For .py files, name = filename[:-3]
+        - For .py.disabled files, name = filename[:-12] (removes '.py.disabled')
+        """
         result = {}
         if not os.path.exists(COGS_DIR):
             return result
@@ -139,13 +143,14 @@ class MyBot(commands.Bot):
             if filename.startswith("_"):
                 continue
             if filename.endswith(".py"):
-                name = filename[:-3]
+                name = filename[:-3]  # remove '.py'
                 result[name] = {
                     "file": os.path.join(COGS_DIR, filename),
                     "disabled": False
                 }
             elif filename.endswith(".py.disabled"):
-                name = filename[:-11]  # remove ".py.disabled"
+                # remove the entire '.py.disabled' suffix (12 characters)
+                name = filename[:-12]
                 result[name] = {
                     "file": os.path.join(COGS_DIR, filename),
                     "disabled": True
@@ -276,6 +281,7 @@ class MyBot(commands.Bot):
             print(f"Cog '{arg}' is already disabled.")
             return
 
+        # Unload if loaded
         if self._is_loaded(arg):
             ext = f"cogs.{arg}"
             try:
@@ -285,6 +291,7 @@ class MyBot(commands.Bot):
                 print(f"Failed unloading {ext}: {e}")
                 return
 
+        # Rename file: .py -> .py.disabled
         old_path = cog_info[arg]["file"]
         new_path = old_path + ".disabled"
         try:
@@ -294,7 +301,10 @@ class MyBot(commands.Bot):
             print(f"Failed to disable {arg}: {e}")
 
     async def cmd_enable(self, arg):
-        """Remove .disabled suffix from a cog file and load it."""
+        """
+        Remove .disabled suffix from a cog file (rename .py.disabled -> .py).
+        Does NOT load the cog automatically.
+        """
         if arg is None:
             print("Usage: enable <module>")
             return
@@ -307,21 +317,20 @@ class MyBot(commands.Bot):
             print(f"Cog '{arg}' is already enabled.")
             return
 
+        # Rename back: .py.disabled -> .py
         old_path = cog_info[arg]["file"]
-        new_path = old_path[:-11]  # remove ".py.disabled"
+        # The file should end with '.py.disabled', we replace that with '.py'
+        if not old_path.endswith(".py.disabled"):
+            print(f"Internal error: {old_path} does not end with .py.disabled")
+            return
+        new_path = old_path[:-12] + ".py"   # remove '.py.disabled' and add '.py'
         try:
             os.rename(old_path, new_path)
             print(f"Enabled '{arg}' (renamed to {os.path.basename(new_path)})")
         except Exception as e:
             print(f"Failed to enable {arg}: {e}")
-            return
 
-        ext = f"cogs.{arg}"
-        try:
-            await self.load_extension(ext)
-            print(f"Loaded {ext}")
-        except Exception as e:
-            print(f"Failed loading {ext}: {e}")
+        # Do NOT load the cog automatically
 
     async def cmd_sync(self):
         """Manually sync slash commands."""
@@ -342,7 +351,7 @@ Available terminal commands:
   stop <module>               - Unload a specific cog
   load <module>               - Load a specific cog (must be enabled)
   disable <module>            - Unload and rename file to .py.disabled
-  enable <module>             - Rename .py.disabled back and load it
+  enable <module>             - Rename .py.disabled back to .py (does NOT load)
   sync                        - Manually sync slash commands
   help                        - Show this help
 """

@@ -208,7 +208,23 @@ def _normalize_cookie_host(hostname: str) -> str:
     if not cleaned:
         return ""
     parsed = urlparse(cleaned if "://" in cleaned else f"https://{cleaned}")
-    return parsed.hostname or ""
+    return (parsed.hostname or "").lower()
+
+
+def _cookie_domain_matches(cookie_host: str, hostname: str) -> bool:
+    """Return True if a Firefox cookie host applies to the target hostname.
+
+    - Host-only cookies (no leading '.') match only the exact hostname.
+    - Domain cookies (leading '.') match the domain itself and all its subdomains.
+    """
+    cookie_host = (cookie_host or "").strip().lower()
+    hostname = (hostname or "").strip().lower()
+    if not cookie_host or not hostname:
+        return False
+    if cookie_host.startswith("."):
+        domain = cookie_host[1:]
+        return hostname == domain or hostname.endswith("." + domain)
+    return hostname == cookie_host
 
 
 def load_firefox_cookies(hostname: str, db_path: Path | None = None) -> list[dict]:
@@ -229,17 +245,36 @@ def load_firefox_cookies(hostname: str, db_path: Path | None = None) -> list[dic
             db_file = temp_db_path
 
         cookie_hostname = _normalize_cookie_host(hostname)
+        if not cookie_hostname:
+            print(f"[screenshot] Empty cookie hostname for input: {hostname!r}")
+            return []
+
         conn = sqlite3.connect(db_file)
         conn.row_factory = sqlite3.Row
+        # Fetch a broad set of candidates (Firefox cookie DBs are small),
+        # then apply precise domain-matching rules in Python. This correctly
+        # handles both host-only cookies and Domain=.example.com cookies
+        # for apex and subdomain targets, independent of the original URL scheme.
         rows = conn.execute(
-            "SELECT host, name, value, path, isSecure, expiry FROM moz_cookies WHERE ? LIKE '%' || host OR host = ?",
-            (cookie_hostname, cookie_hostname),
+            "SELECT host, name, value, path, isSecure, expiry FROM moz_cookies"
         ).fetchall()
         conn.close()
-        print(f"[screenshot] Loaded {len(rows)} cookie(s) for hostname: {hostname} (normalized: {cookie_hostname})")
-        for row in rows:
-            print(f"[screenshot] cookie -> host={row['host']} name={row['name']} path={row['path']} isSecure={row['isSecure']}")
-        return [dict(row) for row in rows]
+
+        matched = [
+            dict(row)
+            for row in rows
+            if _cookie_domain_matches(row["host"], cookie_hostname)
+        ]
+        print(
+            f"[screenshot] Loaded {len(matched)} cookie(s) for hostname: {hostname} "
+            f"(normalized: {cookie_hostname}) out of {len(rows)} total"
+        )
+        for row in matched:
+            print(
+                f"[screenshot] cookie -> host={row['host']} name={row['name']} "
+                f"path={row['path']} isSecure={row['isSecure']}"
+            )
+        return matched
     except Exception as exc:
         print(f"[screenshot] Failed to load Firefox cookies: {exc}")
         return []
