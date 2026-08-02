@@ -7,11 +7,13 @@ import shutil
 import sqlite3
 import tempfile
 import time
+import socket
+import ipaddress
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from datetime import datetime
-from fnmatch import fnmatch  # 用于 glob 匹配
+from fnmatch import fnmatch
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config"
@@ -26,7 +28,6 @@ ALLOWED_SCHEMES = {"http", "https"}
 
 
 def load_allowed_domains() -> list[str]:
-    """加载截图访问白名单（仅从 WHITELIST_PATH 读取）。"""
     if not WHITELIST_PATH.exists():
         return []
     domains: list[str] = []
@@ -82,20 +83,13 @@ async def navigate_to_page(page, url: str) -> None:
 
 
 def _pattern_matches(value: str, pattern: str) -> bool:
-    """
-    混合匹配：
-      1. 如果 pattern 包含 '*'，则作为 glob 模式（使用 fnmatch）进行匹配（忽略大小写）。
-      2. 否则，若 value 等于 pattern（忽略大小写），或 value 以 .pattern 结尾（域名后缀匹配），则匹配。
-    """
     if not pattern:
         return False
     value_lower = value.lower()
     pattern_lower = pattern.lower()
     if '*' in pattern:
-        # 使用 glob 匹配（fnmatch 支持 * 和 ?，但仅用 *）
         return fnmatch(value_lower, pattern_lower)
     else:
-        # 精确匹配或后缀匹配
         if value_lower == pattern_lower:
             return True
         if value_lower.endswith("." + pattern_lower):
@@ -104,13 +98,11 @@ def _pattern_matches(value: str, pattern: str) -> bool:
 
 
 def is_domain_allowed(url: str) -> bool:
-    """检查 URL 是否允许截图访问（白名单/黑名单均支持 glob 和后缀匹配）。"""
     normalized = normalize_url(url)
     parsed = urlparse(normalized)
     hostname = (parsed.hostname or "").lower()
     scheme = (parsed.scheme or "").lower()
 
-    # 先检查黑名单
     for pattern in load_blocked_domains():
         if _pattern_matches(normalized, pattern):
             return False
@@ -119,7 +111,6 @@ def is_domain_allowed(url: str) -> bool:
         if scheme and _pattern_matches(scheme, pattern):
             return False
 
-    # 再检查白名单
     for pattern in load_allowed_domains():
         if _pattern_matches(normalized, pattern):
             return True
@@ -131,9 +122,8 @@ def is_domain_allowed(url: str) -> bool:
     return False
 
 
-# ---------- Cookie 白名单（独立） ----------
+# ---------- Cookie 白名单 ----------
 def load_cookie_allowed_domains() -> list[str]:
-    """只从 COOKIE_WHITELIST_PATH 加载，用于决定是否注入 Cookie。"""
     if not COOKIE_WHITELIST_PATH.exists():
         return []
     domains = []
@@ -145,10 +135,6 @@ def load_cookie_allowed_domains() -> list[str]:
 
 
 def is_cookie_allowed(url: str) -> bool:
-    """
-    判断是否允许为该 URL 加载 Firefox Cookie。
-    仅匹配 hostname（不匹配 scheme 或完整 URL），支持 glob 和后缀匹配。
-    """
     normalized = normalize_url(url)
     parsed = urlparse(normalized)
     hostname = (parsed.hostname or "").lower()
@@ -158,6 +144,29 @@ def is_cookie_allowed(url: str) -> bool:
         if _pattern_matches(hostname, pattern):
             return True
     return False
+# -------------------------------------------------------
+
+
+# ---------- 私有 IP 检查 ----------
+def is_private_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        return ip.is_private or ip.is_loopback or ip.is_multicast or ip.is_unspecified
+    except ValueError:
+        return True  # 无效 IP 视为私有
+
+
+def resolve_ip(hostname: str) -> str:
+    try:
+        addrinfo = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        if not addrinfo:
+            raise ValueError(f"Could not resolve hostname: {hostname}")
+        for info in addrinfo:
+            if info[0] == socket.AF_INET:
+                return info[4][0]
+        return addrinfo[0][4][0]
+    except socket.gaierror as e:
+        raise ValueError(f"DNS resolution failed for {hostname}: {e}")
 # -------------------------------------------------------
 
 
@@ -246,7 +255,6 @@ def load_firefox_cookies(hostname: str, db_path: Path | None = None) -> list[dic
 
         conn = sqlite3.connect(db_file)
         conn.row_factory = sqlite3.Row
-        # 添加 isHttpOnly 字段
         rows = conn.execute(
             "SELECT host, name, value, path, isSecure, isHttpOnly, expiry FROM moz_cookies"
         ).fetchall()
@@ -288,6 +296,14 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
     parsed = urlparse(normalized)
     hostname = parsed.hostname or ""
 
+    # ---- 导航前检查：拒绝私有 IP ----
+    try:
+        ip = resolve_ip(hostname)
+        if is_private_ip(ip):
+            raise ValueError(f"Access to private IP addresses is not allowed (resolved {hostname} -> {ip})")
+    except Exception as e:
+        raise ValueError(f"Hostname resolution or private IP check failed: {e}")
+
     from playwright.async_api import async_playwright
 
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Starting Firefox for {url} with viewport {width}x{height}")
@@ -324,7 +340,7 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
             extra_http_headers={"Accept-Language": "en-US,en;q=0.9"}
         )
         try:
-            # Cookie 注入仅当域名在 Cookie 白名单中
+            # Cookie 注入（白名单控制）
             if is_cookie_allowed(normalized):
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Domain is in cookie whitelist, attempting to load Firefox cookies")
                 cookies = load_firefox_cookies(hostname)
@@ -337,7 +353,7 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
                             "domain": cookie["host"],
                             "path": cookie["path"] or "/",
                             "secure": bool(cookie.get("isSecure", 0)),
-                            "httpOnly": bool(cookie.get("isHttpOnly", 0)),  # 新增
+                            "httpOnly": bool(cookie.get("isHttpOnly", 0)),
                             "sameSite": "Lax",
                         }
                         expiry = cookie.get("expiry")
@@ -360,11 +376,20 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Opening page: {normalized}")
             await navigate_to_page(page, normalized)
 
+            # ---- 导航后检查：最终 URL 是否允许且不是私有 IP ----
             current_url = page.url
             if not is_domain_allowed(current_url):
-                error_msg = f"Final URL after redirect '{current_url}' is not allowed"
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] {error_msg}")
-                raise ValueError(error_msg)
+                raise ValueError(f"Final URL after redirect '{current_url}' is not allowed")
+
+            final_parsed = urlparse(current_url)
+            final_hostname = final_parsed.hostname or ""
+            if final_hostname:
+                try:
+                    final_ip = resolve_ip(final_hostname)
+                    if is_private_ip(final_ip):
+                        raise ValueError(f"Final URL resolved to private IP: {final_hostname} -> {final_ip}")
+                except Exception as e:
+                    raise ValueError(f"Final URL DNS/private check failed: {e}")
 
             try:
                 await page.wait_for_load_state("load", timeout=60000)
