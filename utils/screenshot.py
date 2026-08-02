@@ -17,6 +17,7 @@ COOKIE_WHITELIST_PATH = CONFIG_DIR / "screenshot_web_whitelist_cookie.txt"
 SCREENSHOT_DIR = CONFIG_DIR / "screenshots"
 SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
 FIREFOX_COOKIE_DB = Path(r"C:\Users\lanlan3292\AppData\Roaming\Mozilla\Firefox\Profiles\hWXDvu56.配置文件 1\cookies.sqlite")
+ALLOWED_SCHEMES = {"http", "https", "file", "ftp", "ftps", "sftp", "about"}
 
 
 def load_allowed_domains() -> list[str]:
@@ -39,33 +40,110 @@ def normalize_url(url: str) -> str:
     if not cleaned:
         raise ValueError("URL cannot be empty")
 
-    if "://" not in cleaned:
-        cleaned = f"https://{cleaned}"
-
     parsed = urlparse(cleaned)
     if not parsed.scheme:
-        parsed = parsed._replace(scheme="https")
+        if "://" in cleaned:
+            raise ValueError("URL must include a valid scheme")
+        return cleaned
 
-    if parsed.scheme not in {"http", "https"}:
-        raise ValueError("Only http/https URLs are supported")
+    scheme = parsed.scheme.lower()
+    if scheme not in ALLOWED_SCHEMES:
+        raise ValueError(f"Unsupported URL scheme: {scheme}")
 
-    if not parsed.netloc:
+    if scheme in {"http", "https", "ftp", "ftps", "sftp"} and not parsed.netloc:
         raise ValueError("URL must include a hostname")
 
     return parsed.geturl()
 
 
-def is_domain_allowed(url: str) -> bool:
+def get_navigation_wait_strategy(url: str) -> tuple[str, int]:
     normalized = normalize_url(url)
-    hostname = urlparse(normalized).hostname or ""
-    if not hostname:
+    parsed = urlparse(normalized)
+    scheme = (parsed.scheme or "").lower()
+    if scheme in {"about", "file"}:
+        return "commit", 15000
+    return "domcontentloaded", 60000
+
+
+async def navigate_to_page(page, url: str) -> None:
+    normalized = normalize_url(url)
+    parsed = urlparse(normalized)
+    scheme = (parsed.scheme or "").lower()
+
+    if scheme == "about":
+        try:
+            await page.goto(normalized, wait_until="commit", timeout=10000)
+        except Exception:
+            try:
+                await page.goto("about:blank", wait_until="commit", timeout=1000)
+            except Exception:
+                pass
+
+            try:
+                await page.evaluate(
+                    """
+                    (content) => {
+                        document.open();
+                        document.write(content);
+                        document.close();
+                    }
+                    """,
+                    "<html><body><h1>about: page</h1><pre>{}</pre></body></html>".format(normalized),
+                )
+            except Exception:
+                await page.set_content(
+                    "<html><body><h1>about: page</h1><pre>{}</pre></body></html>".format(normalized),
+                )
+        return
+
+    wait_strategy, timeout_ms = get_navigation_wait_strategy(normalized)
+    try:
+        await page.goto(normalized, wait_until=wait_strategy, timeout=timeout_ms)
+    except Exception as exc:
+        print(f"[screenshot] Navigation warning for {normalized}: {exc}")
+        if wait_strategy == "commit":
+            await page.goto(normalized, wait_until="commit", timeout=10000)
+        else:
+            raise
+
+
+def _pattern_matches(value: str, pattern: str) -> bool:
+    candidate = pattern.strip().lower()
+    if not candidate:
+        return False
+    if candidate == "*":
+        return True
+
+    normalized = value.strip().lower()
+    regex = re.escape(candidate).replace(r"\*", ".*")
+    try:
+        if re.fullmatch(regex, normalized):
+            return True
+    except re.error:
         return False
 
+    if normalized == candidate or normalized.endswith(f".{candidate}"):
+        return True
+
+    return False
+
+
+def is_domain_allowed(url: str) -> bool:
+    normalized = normalize_url(url)
+    parsed = urlparse(normalized)
+    hostname = (parsed.hostname or "").lower()
+    scheme = (parsed.scheme or "").lower()
+
     allowed_domains = load_allowed_domains()
-    return any(
-        hostname == domain or hostname.endswith(f".{domain}")
-        for domain in allowed_domains
-    )
+    for pattern in allowed_domains:
+        if _pattern_matches(normalized, pattern):
+            return True
+        if hostname and _pattern_matches(hostname, pattern):
+            return True
+        if scheme and _pattern_matches(scheme, pattern):
+            return True
+
+    return False
 
 
 def get_public_ip() -> str:
@@ -153,9 +231,17 @@ async def capture_screenshot_bytes(url: str) -> bytes:
                 "media.volume_scale": "0.0",
                 "media.default_volume": "0.0",
                 "media.hardware-video-decoding.enabled": False,
-                "media.autoplay.default": "5",
+                "media.autoplay.default": 5,
                 "media.block-autoplay-until-in-foreground": True,
                 "media.block-play-until-visible": True,
+                "media.navigator.enabled": False,
+                "media.peerconnection.ice.proxy_only_if_single_homed": True,
+                "media.peerconnection.ice.default_address_only": True,
+                "media.peerconnection.ice.no_host": True,
+                #"general.useragent.override": "Mozilla/5.0 (compatible; MolankoBot/1.0)",
+                "intl.accept_languages": "en-US, en",
+                "general.useragent.locale": "en-US",
+                "browser.search.region": "US",
             },
         )
         context = await browser.new_context(viewport={"width": 1280, "height": 720})
@@ -195,11 +281,19 @@ async def capture_screenshot_bytes(url: str) -> bytes:
 
             page = await context.new_page()
             print(f"[screenshot] Opening page: {normalized}")
-            await page.goto(normalized, wait_until="domcontentloaded", timeout=60000)
-            await page.wait_for_load_state("load", timeout=60000)
+            await navigate_to_page(page, normalized)
+
+            try:
+                await page.wait_for_load_state("load", timeout=60000)
+            except Exception as exc:
+                print(f"[screenshot] Load state warning for {normalized}: {exc}")
             await page.wait_for_timeout(2000)
             print(f"[screenshot] Page loaded, waiting for final render")
-            public_ip = get_public_ip()
+            try:
+                public_ip = get_public_ip()
+            except Exception as exc:
+                print(f"[screenshot] Failed to resolve public IP, continuing without masking: {exc}")
+                public_ip = ""
             if public_ip:
                 await mask_ip_in_page(page, public_ip)
             print(f"[screenshot] Capturing screenshot")

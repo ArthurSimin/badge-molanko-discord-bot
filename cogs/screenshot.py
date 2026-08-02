@@ -11,6 +11,7 @@ class Screenshot(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="screenshot", description="Capture a whitelisted web page screenshot at 1280x720")
+    @app_commands.allowed_contexts(guilds=True,dms=True,private_channels=True)
     @app_commands.describe(url="Website URL or domain to capture, such as github.com")
     async def screenshot(self, interaction: discord.Interaction, url: str):
         await interaction.response.defer(thinking=True)

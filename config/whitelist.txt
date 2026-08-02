@@ -3,3 +3,4 @@ modrinth.com
 youtube.com
 google.com
 bilibili.com
+about:*

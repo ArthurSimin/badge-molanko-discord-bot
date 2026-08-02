@@ -8,6 +8,7 @@ class Time(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="time", description="Show the current UTC time")
+    @app_commands.allowed_contexts(guilds=True,dms=True,private_channels=True)
     async def time(self, interaction: discord.Interaction):
         now_utc = datetime.now(timezone.utc)
         formatted = now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
