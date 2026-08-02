@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -17,7 +18,7 @@ BLACKLIST_PATH = CONFIG_DIR / "blacklist.txt"
 COOKIE_WHITELIST_PATH = CONFIG_DIR / "screenshot_web_whitelist_cookie.txt"
 SCREENSHOT_DIR = CONFIG_DIR / "screenshots"
 SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
-FIREFOX_COOKIE_DB = Path(r"C:\Users\lanlan3292\AppData\Roaming\Mozilla\Firefox\Profiles\hWXDvu56.配置文件 1\cookies.sqlite")
+FIREFOX_COOKIE_DB = Path(os.getenv("FIREFOX_COOKIE_DB", "")) if os.getenv("FIREFOX_COOKIE_DB") else None
 ALLOWED_SCHEMES = {"http", "https", "file", "ftp", "ftps", "sftp", "about"}
 
 
@@ -202,8 +203,19 @@ async def mask_ip_in_page(page, ip_address: str) -> None:
     )
 
 
+def _normalize_cookie_host(hostname: str) -> str:
+    cleaned = hostname.strip()
+    if not cleaned:
+        return ""
+    parsed = urlparse(cleaned if "://" in cleaned else f"https://{cleaned}")
+    return parsed.hostname or ""
+
+
 def load_firefox_cookies(hostname: str, db_path: Path | None = None) -> list[dict]:
     db_file = db_path or FIREFOX_COOKIE_DB
+    if db_file is None:
+        print("[screenshot] Firefox cookie DB path is not configured")
+        return []
     if not db_file.exists():
         print(f"[screenshot] Firefox cookie DB not found: {db_file}")
         return []
@@ -216,14 +228,15 @@ def load_firefox_cookies(hostname: str, db_path: Path | None = None) -> list[dic
             shutil.copy2(db_file, temp_db_path)
             db_file = temp_db_path
 
+        cookie_hostname = _normalize_cookie_host(hostname)
         conn = sqlite3.connect(db_file)
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT host, name, value, path, isSecure, expiry FROM moz_cookies WHERE ? LIKE '%' || host OR host = ?",
-            (hostname, hostname),
+            (cookie_hostname, cookie_hostname),
         ).fetchall()
         conn.close()
-        print(f"[screenshot] Loaded {len(rows)} cookie(s) for hostname: {hostname}")
+        print(f"[screenshot] Loaded {len(rows)} cookie(s) for hostname: {hostname} (normalized: {cookie_hostname})")
         for row in rows:
             print(f"[screenshot] cookie -> host={row['host']} name={row['name']} path={row['path']} isSecure={row['isSecure']}")
         return [dict(row) for row in rows]
@@ -262,9 +275,14 @@ async def capture_screenshot_bytes(url: str) -> bytes:
                 "media.peerconnection.ice.default_address_only": True,
                 "media.peerconnection.ice.no_host": True,
                 #"general.useragent.override": "Mozilla/5.0 (compatible; MolankoBot/1.0)",
-                "intl.accept_languages": "en-US, en",
+                "intl.accept_languages": "en-US,en",
                 "general.useragent.locale": "en-US",
                 "browser.search.region": "US",
+                #"browser.cache.disk.enable": False,
+                #"browser.cache.memory.enable": False
+                #"pdfjs.disabled": True
+                "toolkit.telemetry.enabled": False,
+                "datareporting.healthreport.uploadEnabled": False,
             },
         )
         context = await browser.new_context(viewport={"width": 1280, "height": 720},locale="en-US",timezone_id="UTC",extra_http_headers={"Accept-Language": "en-US,en;q=0.9"})
