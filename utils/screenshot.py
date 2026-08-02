@@ -21,21 +21,18 @@ SCREENSHOT_DIR = CONFIG_DIR / "screenshots_web"
 SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
 PUBLIC_IP_FILE = CONFIG_DIR / "public_ip.env"
 FIREFOX_COOKIE_DB = Path(os.getenv("FIREFOX_COOKIE_DB", "")) if os.getenv("FIREFOX_COOKIE_DB") else None
-ALLOWED_SCHEMES = {"http", "https", "file", "ftp", "ftps", "sftp", "about"}
+ALLOWED_SCHEMES = {"http", "https"}  # 只支持 http/https
 
 
 def load_allowed_domains() -> list[str]:
-    whitelist_files = [WHITELIST_PATH, COOKIE_WHITELIST_PATH]
+    """仅从截图白名单文件加载域名，不再合并 Cookie 白名单。"""
+    if not WHITELIST_PATH.exists():
+        return []
     domains: list[str] = []
-
-    for path in whitelist_files:
-        if not path.exists():
-            continue
-        for line in path.read_text(encoding="utf-8").splitlines():
-            cleaned = line.strip().lower()
-            if cleaned and not cleaned.startswith("#"):
-                domains.append(cleaned)
-
+    for line in WHITELIST_PATH.read_text(encoding="utf-8").splitlines():
+        cleaned = line.strip().lower()
+        if cleaned and not cleaned.startswith("#"):
+            domains.append(cleaned)
     return sorted(set(domains))
 
 
@@ -67,52 +64,19 @@ def normalize_url(url: str) -> str:
     if scheme not in ALLOWED_SCHEMES:
         raise ValueError(f"Unsupported URL scheme: {scheme}")
 
-    if scheme in {"http", "https", "ftp", "ftps", "sftp"} and not parsed.netloc:
+    if not parsed.netloc:
         raise ValueError("URL must include a hostname")
 
     return parsed.geturl()
 
 
 def get_navigation_wait_strategy(url: str) -> tuple[str, int]:
-    normalized = normalize_url(url)
-    parsed = urlparse(normalized)
-    scheme = (parsed.scheme or "").lower()
-    if scheme in {"about", "file"}:
-        return "commit", 15000
+    # 不再区分协议，统一使用 domcontentloaded
     return "domcontentloaded", 60000
 
 
 async def navigate_to_page(page, url: str) -> None:
-    normalized = normalize_url(url)
-    parsed = urlparse(normalized)
-    scheme = (parsed.scheme or "").lower()
-
-    if scheme == "about":
-        try:
-            await page.goto(normalized, wait_until="commit", timeout=10000)
-        except Exception:
-            try:
-                await page.goto("about:blank", wait_until="commit", timeout=1000)
-            except Exception:
-                pass
-
-            try:
-                await page.evaluate(
-                    """
-                    (content) => {
-                        document.open();
-                        document.write(content);
-                        document.close();
-                    }
-                    """,
-                    "<html><body><h1>about: page</h1><pre>{}</pre></body></html>".format(normalized),
-                )
-            except Exception:
-                await page.set_content(
-                    "<html><body><h1>about: page</h1><pre>{}</pre></body></html>".format(normalized),
-                )
-        return
-
+    normalized = normalize_url(url)  # 已经确保 scheme 合法
     wait_strategy, timeout_ms = get_navigation_wait_strategy(normalized)
     try:
         await page.goto(normalized, wait_until=wait_strategy, timeout=timeout_ms)
@@ -146,6 +110,7 @@ def _pattern_matches(value: str, pattern: str) -> bool:
 
 
 def is_domain_allowed(url: str) -> bool:
+    """检查 URL 是否在截图白名单中（仅 WHITELIST_PATH）。"""
     normalized = normalize_url(url)
     parsed = urlparse(normalized)
     hostname = (parsed.hostname or "").lower()
@@ -172,9 +137,9 @@ def is_domain_allowed(url: str) -> bool:
     return False
 
 
-# ---------- 新增：专门用于 cookie 白名单的函数 ----------
+# ---------- Cookie 白名单独立函数 ----------
 def load_cookie_allowed_domains() -> list[str]:
-    """只从 COOKIE_WHITELIST_PATH 加载域名，不做合并。"""
+    """只从 COOKIE_WHITELIST_PATH 加载域名。"""
     if not COOKIE_WHITELIST_PATH.exists():
         return []
     domains = []
@@ -186,7 +151,7 @@ def load_cookie_allowed_domains() -> list[str]:
 
 
 def is_cookie_allowed(url: str) -> bool:
-    """判断 URL 是否在 cookie 白名单中（仅限 COOKIE_WHITELIST_PATH）。"""
+    """仅判断 URL 是否在 Cookie 白名单中（只使用 COOKIE_WHITELIST_PATH）。"""
     normalized = normalize_url(url)
     parsed = urlparse(normalized)
     hostname = (parsed.hostname or "").lower()
@@ -209,17 +174,14 @@ def get_public_ip() -> str:
         request = Request("https://api.ip.sb/ip", headers={"User-Agent": "curl/8.0"})
         with urlopen(request, timeout=10) as response:
             ip = response.read().decode("utf-8").strip()
-        # 写入缓存
         PUBLIC_IP_FILE.parent.mkdir(parents=True, exist_ok=True)
         PUBLIC_IP_FILE.write_text(ip, encoding="utf-8")
         return ip
     except Exception:
-        # 获取失败，尝试读取缓存
         if PUBLIC_IP_FILE.exists():
             cached = PUBLIC_IP_FILE.read_text(encoding="utf-8").strip()
             if cached:
                 return cached
-        # 无缓存则重新抛出异常
         raise
 
 
@@ -259,11 +221,6 @@ def _normalize_cookie_host(hostname: str) -> str:
 
 
 def _cookie_domain_matches(cookie_host: str, hostname: str) -> bool:
-    """Return True if a Firefox cookie host applies to the target hostname.
-
-    - Host-only cookies (no leading '.') match only the exact hostname.
-    - Domain cookies (leading '.') match the domain itself and all its subdomains.
-    """
     cookie_host = (cookie_host or "").strip().lower()
     hostname = (hostname or "").strip().lower()
     if not cookie_host or not hostname:
@@ -327,7 +284,6 @@ def load_firefox_cookies(hostname: str, db_path: Path | None = None) -> list[dic
 
 
 async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 720) -> bytes:
-    # 校验分辨率范围
     if not (640 <= width <= 1920):
         raise ValueError(f"Width must be between 640 and 1920, got {width}")
     if not (480 <= height <= 1080):
@@ -358,13 +314,9 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
                 "media.peerconnection.ice.proxy_only_if_single_homed": True,
                 "media.peerconnection.ice.default_address_only": True,
                 "media.peerconnection.ice.no_host": True,
-                #"general.useragent.override": "Mozilla/5.0 (compatible; MolankoBot/1.0)",
                 "intl.accept_languages": "en-US,en",
                 "general.useragent.locale": "en-US",
                 "browser.search.region": "US",
-                #"browser.cache.disk.enable": False,
-                #"browser.cache.memory.enable": False
-                #"pdfjs.disabled": True
                 "toolkit.telemetry.enabled": False,
                 "datareporting.healthreport.uploadEnabled": False,
                 "geo.enabled": False,
@@ -374,14 +326,13 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
             },
         )
         context = await browser.new_context(
-            viewport={"width": width, "height": height},  # 使用传入的分辨率
+            viewport={"width": width, "height": height},
             locale="en-US",
             timezone_id="UTC",
             extra_http_headers={"Accept-Language": "en-US,en;q=0.9"}
         )
         try:
-            # ----- 修改：仅当域名在 cookie 白名单中时加载 cookies -----
-            cookies = []
+            # 仅当域名在 Cookie 白名单中时加载 cookies
             if is_cookie_allowed(normalized):
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Domain is in cookie whitelist, attempting to load Firefox cookies")
                 cookies = load_firefox_cookies(hostname)
@@ -412,7 +363,6 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
                         await context.add_cookies(cookie_payload)
                     except Exception as exc:
                         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Cookie injection failed, continuing without cookies: {exc}")
-                        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Fallback reason: Playwright rejected the injected cookie payload for {hostname}")
                 else:
                     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] No cookies loaded for {hostname}")
             else:
@@ -422,7 +372,6 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Opening page: {normalized}")
             await navigate_to_page(page, normalized)
 
-            # ---- 检查重定向后的最终 URL 是否仍在白名单且不在黑名单 ----
             current_url = page.url
             if not is_domain_allowed(current_url):
                 error_msg = f"Final URL after redirect '{current_url}' is not allowed"
@@ -461,7 +410,6 @@ async def capture_screenshot(url: str, output_path: Path | None = None) -> Path:
         output_path = SCREENSHOT_DIR / file_name
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    # 使用默认分辨率（如需自定义，请调用 capture_screenshot_bytes 并传入相应参数）
-    image_bytes = await capture_screenshot_bytes(normalized)  # 这里保留默认
+    image_bytes = await capture_screenshot_bytes(normalized)
     output_path.write_bytes(image_bytes)
     return output_path

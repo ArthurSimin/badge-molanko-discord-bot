@@ -17,3 +17,4 @@ modrinth.com
 curseforge.com
 
 minecraft.wiki
+wikipedia.org
