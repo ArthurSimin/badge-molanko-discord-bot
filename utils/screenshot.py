@@ -153,6 +153,9 @@ async def capture_screenshot_bytes(url: str) -> bytes:
                 "media.volume_scale": "0.0",
                 "media.default_volume": "0.0",
                 "media.hardware-video-decoding.enabled": False,
+                "media.autoplay.default": "5",
+                "media.block-autoplay-until-in-foreground": True,
+                "media.block-play-until-visible": True,
             },
         )
         context = await browser.new_context(viewport={"width": 1280, "height": 720})
