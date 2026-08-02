@@ -1,7 +1,11 @@
 github.com
-modrinth.com
-youtube.com
+
 google.com
+
+youtube.com
 bilibili.com
-about:*
+
 time.is
+
+modrinth.com
+curseforge.com

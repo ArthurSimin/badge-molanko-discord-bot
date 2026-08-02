@@ -171,6 +171,37 @@ def is_domain_allowed(url: str) -> bool:
     return False
 
 
+# ---------- 新增：专门用于 cookie 白名单的函数 ----------
+def load_cookie_allowed_domains() -> list[str]:
+    """只从 COOKIE_WHITELIST_PATH 加载域名，不做合并。"""
+    if not COOKIE_WHITELIST_PATH.exists():
+        return []
+    domains = []
+    for line in COOKIE_WHITELIST_PATH.read_text(encoding="utf-8").splitlines():
+        cleaned = line.strip().lower()
+        if cleaned and not cleaned.startswith("#"):
+            domains.append(cleaned)
+    return sorted(set(domains))
+
+
+def is_cookie_allowed(url: str) -> bool:
+    """判断 URL 是否在 cookie 白名单中（仅限 COOKIE_WHITELIST_PATH）。"""
+    normalized = normalize_url(url)
+    parsed = urlparse(normalized)
+    hostname = (parsed.hostname or "").lower()
+    scheme = (parsed.scheme or "").lower()
+    allowed_domains = load_cookie_allowed_domains()
+    for pattern in allowed_domains:
+        if _pattern_matches(normalized, pattern):
+            return True
+        if hostname and _pattern_matches(hostname, pattern):
+            return True
+        if scheme and _pattern_matches(scheme, pattern):
+            return True
+    return False
+# -------------------------------------------------------
+
+
 def get_public_ip() -> str:
     request = Request("https://api.ip.sb/ip", headers={"User-Agent": "curl/8.0"})
     with urlopen(request, timeout=10) as response:
@@ -231,7 +262,7 @@ def _cookie_domain_matches(cookie_host: str, hostname: str) -> bool:
 def load_firefox_cookies(hostname: str, db_path: Path | None = None) -> list[dict]:
     db_file = db_path or FIREFOX_COOKIE_DB
     if db_file is None:
-        print("[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Firefox cookie DB path is not configured")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Firefox cookie DB path is not configured")
         return []
     if not db_file.exists():
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Firefox cookie DB not found: {db_file}")
@@ -252,10 +283,6 @@ def load_firefox_cookies(hostname: str, db_path: Path | None = None) -> list[dic
 
         conn = sqlite3.connect(db_file)
         conn.row_factory = sqlite3.Row
-        # Fetch a broad set of candidates (Firefox cookie DBs are small),
-        # then apply precise domain-matching rules in Python. This correctly
-        # handles both host-only cookies and Domain=.example.com cookies
-        # for apex and subdomain targets, independent of the original URL scheme.
         rows = conn.execute(
             "SELECT host, name, value, path, isSecure, expiry FROM moz_cookies"
         ).fetchall()
@@ -321,40 +348,50 @@ async def capture_screenshot_bytes(url: str) -> bytes:
                 "datareporting.healthreport.uploadEnabled": False,
             },
         )
-        context = await browser.new_context(viewport={"width": 1280, "height": 720},locale="en-US",timezone_id="UTC",extra_http_headers={"Accept-Language": "en-US,en;q=0.9"})
+        context = await browser.new_context(
+            viewport={"width": 1280, "height": 720},
+            locale="en-US",
+            timezone_id="UTC",
+            extra_http_headers={"Accept-Language": "en-US,en;q=0.9"}
+        )
         try:
-            cookies = load_firefox_cookies(hostname)
-            if cookies:
-                cookie_payload = []
-                for cookie in cookies:
-                    payload = {
-                        "name": cookie["name"],
-                        "value": cookie["value"],
-                        "domain": cookie["host"],
-                        "path": cookie["path"] or "/",
-                        "secure": bool(cookie.get("isSecure", cookie.get("secure", 0))),
-                        "httpOnly": False,
-                        "sameSite": "Lax",
-                    }
-                    expiry = cookie.get("expiry")
-                    if isinstance(expiry, (int, float)) and expiry > 0:
-                        expiry_seconds = int(expiry / 1000 if expiry > 1_000_000_000_000 else expiry)
-                        if expiry_seconds > 0:
-                            payload["expires"] = expiry_seconds
+            # ----- 修改：仅当域名在 cookie 白名单中时加载 cookies -----
+            cookies = []
+            if is_cookie_allowed(normalized):
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Domain is in cookie whitelist, attempting to load Firefox cookies")
+                cookies = load_firefox_cookies(hostname)
+                if cookies:
+                    cookie_payload = []
+                    for cookie in cookies:
+                        payload = {
+                            "name": cookie["name"],
+                            "value": cookie["value"],
+                            "domain": cookie["host"],
+                            "path": cookie["path"] or "/",
+                            "secure": bool(cookie.get("isSecure", cookie.get("secure", 0))),
+                            "httpOnly": False,
+                            "sameSite": "Lax",
+                        }
+                        expiry = cookie.get("expiry")
+                        if isinstance(expiry, (int, float)) and expiry > 0:
+                            expiry_seconds = int(expiry / 1000 if expiry > 1_000_000_000_000 else expiry)
+                            if expiry_seconds > 0:
+                                payload["expires"] = expiry_seconds
+                            else:
+                                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Skipping invalid expiry for cookie {cookie['name']}@{cookie['host']}: {expiry}")
                         else:
                             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Skipping invalid expiry for cookie {cookie['name']}@{cookie['host']}: {expiry}")
-                    else:
-                        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Skipping invalid expiry for cookie {cookie['name']}@{cookie['host']}: {expiry}")
-                    cookie_payload.append(payload)
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Injecting {len(cookie_payload)} cookie(s) into context for {hostname}")
-                try:
-                    await context.add_cookies(cookie_payload)
-                except Exception as exc:
-                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Cookie injection failed, continuing without cookies: {exc}")
-                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Fallback reason: Playwright rejected the injected cookie payload for {hostname}")
-                    cookie_payload = []
+                        cookie_payload.append(payload)
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Injecting {len(cookie_payload)} cookie(s) into context for {hostname}")
+                    try:
+                        await context.add_cookies(cookie_payload)
+                    except Exception as exc:
+                        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Cookie injection failed, continuing without cookies: {exc}")
+                        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Fallback reason: Playwright rejected the injected cookie payload for {hostname}")
+                else:
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] No cookies loaded for {hostname}")
             else:
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] No cookies injected for {hostname}")
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Cookie injection skipped for {hostname} (not in cookie whitelist)")
 
             page = await context.new_page()
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Opening page: {normalized}")
