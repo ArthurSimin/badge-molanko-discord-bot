@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config"
 WHITELIST_PATH = CONFIG_DIR / "whitelist.txt"
+BLACKLIST_PATH = CONFIG_DIR / "blacklist.txt"
 COOKIE_WHITELIST_PATH = CONFIG_DIR / "screenshot_web_whitelist_cookie.txt"
 SCREENSHOT_DIR = CONFIG_DIR / "screenshots"
 SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
@@ -35,6 +36,19 @@ def load_allowed_domains() -> list[str]:
     return sorted(set(domains))
 
 
+def load_blocked_domains() -> list[str]:
+    if not BLACKLIST_PATH.exists():
+        return []
+
+    domains: list[str] = []
+    for line in BLACKLIST_PATH.read_text(encoding="utf-8").splitlines():
+        cleaned = line.strip().lower()
+        if cleaned and not cleaned.startswith("#"):
+            domains.append(cleaned)
+
+    return sorted(set(domains))
+
+
 def normalize_url(url: str) -> str:
     cleaned = url.strip()
     if not cleaned:
@@ -44,7 +58,7 @@ def normalize_url(url: str) -> str:
     if not parsed.scheme:
         if "://" in cleaned:
             raise ValueError("URL must include a valid scheme")
-        return cleaned
+        return f"https://{cleaned}"
 
     scheme = parsed.scheme.lower()
     if scheme not in ALLOWED_SCHEMES:
@@ -133,6 +147,15 @@ def is_domain_allowed(url: str) -> bool:
     parsed = urlparse(normalized)
     hostname = (parsed.hostname or "").lower()
     scheme = (parsed.scheme or "").lower()
+
+    blocked_domains = load_blocked_domains()
+    for pattern in blocked_domains:
+        if _pattern_matches(normalized, pattern):
+            return False
+        if hostname and _pattern_matches(hostname, pattern):
+            return False
+        if scheme and _pattern_matches(scheme, pattern):
+            return False
 
     allowed_domains = load_allowed_domains()
     for pattern in allowed_domains:
@@ -244,7 +267,7 @@ async def capture_screenshot_bytes(url: str) -> bytes:
                 "browser.search.region": "US",
             },
         )
-        context = await browser.new_context(viewport={"width": 1280, "height": 720})
+        context = await browser.new_context(viewport={"width": 1280, "height": 720},locale="en-US",timezone_id="UTC",extra_http_headers={"Accept-Language": "en-US,en;q=0.9"})
         try:
             cookies = load_firefox_cookies(hostname)
             if cookies:

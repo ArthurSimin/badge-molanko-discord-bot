@@ -1,0 +1,10 @@
+# Put blocked patterns here, one per line.
+# Examples:
+# about:*
+# file:*
+# example.com
+# *.evil.com
+
+myaccount.google.com
+mail.google.com
+192.168.*
