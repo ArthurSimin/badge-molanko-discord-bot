@@ -3,10 +3,20 @@ from discord.ext import commands
 import os
 import asyncio
 import sys
+import datetime          # 新增
 from dotenv import load_dotenv
 
 # 导入命令处理器
 from terminal_commands import TerminalCommandHandler
+
+# ======================
+# Logging function
+# ======================
+
+def log_message(msg: str):
+    """Print a timestamped log message to console."""
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {msg}")
 
 # ======================
 # Paths
@@ -93,7 +103,6 @@ class MyBot(commands.Bot):
         loop = asyncio.get_event_loop()
         while not self._shutdown:
             try:
-                # 显示提示符
                 sys.stdout.write("> ")
                 sys.stdout.flush()
 
@@ -122,6 +131,27 @@ class MyBot(commands.Bot):
 # ======================
 
 bot = MyBot()
+
+# ======================
+# Event loggers
+# ======================
+
+@bot.event
+async def on_command(ctx):
+    """记录前缀命令调用"""
+    log_message(
+        f"Command invoked by {ctx.author} (ID: {ctx.author.id}) "
+        f"with command '{ctx.command.qualified_name}'"
+    )
+
+@bot.event
+async def on_interaction(interaction):
+    """记录斜线命令（以及可能的组件交互，这里只记录应用命令）"""
+    if interaction.type == discord.InteractionType.application_command:
+        log_message(
+            f"Slash command invoked by {interaction.user} (ID: {interaction.user.id}) "
+            f"with command '{interaction.data['name']}'"
+        )
 
 # ======================
 # Error handling

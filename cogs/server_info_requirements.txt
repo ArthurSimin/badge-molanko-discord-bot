@@ -1,5 +1,3 @@
 discord.py
-Pillow
-playwright
 psutil
 py-cpuinfo
