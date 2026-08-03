@@ -24,14 +24,35 @@ class OG(commands.Cog):
             await interaction.followup.send(f"Failed to fetch OG data: {exc}", ephemeral=True)
             return
 
-        # 构建 Embed 展示元数据
         embed = discord.Embed(
             title="Open Graph Metadata",
             color=0x00ccff,
             url=data.get("url") or url
         )
-        embed.set_thumbnail(url=data.get("image") or None)
 
+        # ---------- 智能选择图片显示方式 ----------
+        image_url = data.get("image")
+        if image_url:
+            width = data.get("image:width")
+            height = data.get("image:height")
+            use_thumbnail = True  # 默认缩略图
+
+            if width is not None and height is not None:
+                try:
+                    w = int(width)
+                    h = int(height)
+                    # 大图条件：宽≥400、高≥400、横屏、非方形
+                    if w >= 400 and h >= 400 and w > h and not (0.8 <= w / h <= 1.2):
+                        use_thumbnail = False
+                except (ValueError, ZeroDivisionError):
+                    pass  # 尺寸无效，保持缩略图
+
+            if use_thumbnail:
+                embed.set_thumbnail(url=image_url)
+            else:
+                embed.set_image(url=image_url)
+
+        # ---------- 元数据字段 ----------
         embed.add_field(name="Title", value=data.get("title") or "N/A", inline=False)
         embed.add_field(name="Description", value=data.get("description") or "N/A", inline=False)
         embed.add_field(name="Site Name", value=data.get("site_name") or "N/A", inline=True)
