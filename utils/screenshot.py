@@ -294,9 +294,9 @@ def load_firefox_cookies(hostname: str, db_path: Path | None = None) -> list[dic
 
 
 async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 720) -> bytes:
-    if not (640 <= width <= 1920):
+    if not (640 <= width <= 2048):
         raise ValueError(f"Width must be between 640 and 1920, got {width}")
-    if not (480 <= height <= 1080):
+    if not (480 <= height <= 2048):
         raise ValueError(f"Height must be between 480 and 1080, got {height}")
 
     if not is_domain_allowed(url):
@@ -405,7 +405,7 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
                 await page.wait_for_load_state("load", timeout=60000)
             except Exception as exc:
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Load state warning: {exc}")
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(5000)
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Page loaded, waiting for final render")
             try:
                 public_ip = get_public_ip()
