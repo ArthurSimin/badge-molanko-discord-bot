@@ -147,13 +147,21 @@ def is_cookie_allowed(url: str) -> bool:
 # -------------------------------------------------------
 
 
-# ---------- 私有 IP 检查 ----------
+# ---------- 私有 IP 检查（仅拦截 RFC1918 IPv4） ----------
 def is_private_ip(ip_str: str) -> bool:
+    """检查 IP 是否为 RFC 1918 定义的私有 IPv4 地址（10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16）。"""
     try:
         ip = ipaddress.ip_address(ip_str)
-        return ip.is_private or ip.is_loopback or ip.is_multicast or ip.is_unspecified
+        if ip.version == 4:
+            # 仅拦截 RFC1918 段，不包括 CGNAT、环回、链路本地、多播等
+            return (ip in ipaddress.ip_network('10.0.0.0/8') or
+                    ip in ipaddress.ip_network('172.16.0.0/12') or
+                    ip in ipaddress.ip_network('192.168.0.0/16'))
+        # IPv6 默认放行（不拦截）
+        return False
     except ValueError:
-        return True  # 无效 IP 视为私有
+        # 无效 IP 视为不安全，拒绝
+        return True
 
 
 def resolve_ip(hostname: str) -> str:
@@ -161,9 +169,11 @@ def resolve_ip(hostname: str) -> str:
         addrinfo = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
         if not addrinfo:
             raise ValueError(f"Could not resolve hostname: {hostname}")
+        # 优先返回 IPv4 地址
         for info in addrinfo:
             if info[0] == socket.AF_INET:
                 return info[4][0]
+        # 如果没有 IPv4，返回第一个 IPv6
         return addrinfo[0][4][0]
     except socket.gaierror as e:
         raise ValueError(f"DNS resolution failed for {hostname}: {e}")
@@ -296,11 +306,11 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
     parsed = urlparse(normalized)
     hostname = parsed.hostname or ""
 
-    # ---- 导航前检查：拒绝私有 IP ----
+    # ---- 导航前检查：拒绝 RFC1918 私有 IP ----
     try:
         ip = resolve_ip(hostname)
         if is_private_ip(ip):
-            raise ValueError(f"Access to private IP addresses is not allowed (resolved {hostname} -> {ip})")
+            raise ValueError(f"Access to RFC1918 private IP addresses is not allowed (resolved {hostname} -> {ip})")
     except Exception as e:
         raise ValueError(f"Hostname resolution or private IP check failed: {e}")
 
@@ -376,7 +386,7 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web] Opening page: {normalized}")
             await navigate_to_page(page, normalized)
 
-            # ---- 导航后检查：最终 URL 是否允许且不是私有 IP ----
+            # ---- 导航后检查：最终 URL 是否允许且不是 RFC1918 私有 IP ----
             current_url = page.url
             if not is_domain_allowed(current_url):
                 raise ValueError(f"Final URL after redirect '{current_url}' is not allowed")
@@ -387,7 +397,7 @@ async def capture_screenshot_bytes(url: str, width: int = 1280, height: int = 72
                 try:
                     final_ip = resolve_ip(final_hostname)
                     if is_private_ip(final_ip):
-                        raise ValueError(f"Final URL resolved to private IP: {final_hostname} -> {final_ip}")
+                        raise ValueError(f"Final URL resolved to RFC1918 private IP: {final_hostname} -> {final_ip}")
                 except Exception as e:
                     raise ValueError(f"Final URL DNS/private check failed: {e}")
 
