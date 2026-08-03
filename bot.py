@@ -146,11 +146,23 @@ async def on_command(ctx):
 
 @bot.event
 async def on_interaction(interaction):
-    """记录斜线命令（以及可能的组件交互，这里只记录应用命令）"""
     if interaction.type == discord.InteractionType.application_command:
+        data = interaction.data
+        cmd_type = data.get('type')  # 1, 2, 或 3
+        cmd_name = data.get('name')
+
+        if cmd_type == 1:
+            cmd_label = "Slash command"
+        elif cmd_type == 2:
+            cmd_label = "User context menu command"
+        elif cmd_type == 3:
+            cmd_label = "Message context menu command"
+        else:
+            cmd_label = "Unknown application command"
+
         log_message(
-            f"Slash command invoked by {interaction.user} (ID: {interaction.user.id}) "
-            f"with command '{interaction.data['name']}'"
+            f"{cmd_label} invoked by {interaction.user} (ID: {interaction.user.id}) "
+            f"with command '{cmd_name}'"
         )
 
 # ======================
