@@ -19,3 +19,6 @@ curseforge.com
 
 minecraft.wiki
 wikipedia.org
+wikimedia.org
+
+apple.com
