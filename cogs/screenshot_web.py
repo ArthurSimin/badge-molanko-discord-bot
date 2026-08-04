@@ -4,7 +4,7 @@ from discord.ext import commands
 from io import BytesIO
 from urllib.parse import urlparse
 
-from utils.screenshot_web_firefox import capture_screenshot_bytes, normalize_url
+from lanlan3292_python_screenshot_web.firefox import capture_screenshot_bytes, normalize_url
 from utils.screenshot_security import (
     is_domain_allowed,
     resolve_ip,
