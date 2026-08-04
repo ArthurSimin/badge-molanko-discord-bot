@@ -111,6 +111,9 @@ class Screenshot(commands.Cog):
         if scale is None:
             scale = 1.0
 
+        # ----- 新增：根据名单决定是否阻止媒体 -----
+        block_media = should_block_media(normalized_url)
+
         # 6. 执行截图
         try:
             image_bytes, final_url = await capture_screenshot_bytes(

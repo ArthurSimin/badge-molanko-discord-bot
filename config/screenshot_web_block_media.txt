@@ -1,3 +1,8 @@
 wikipedia.org
+*.wikipedia.org/
+*.wikipedia.org/*
 wikimedia.org
-github.com
+*.wikimedia.org/
+*.wikimedia.org/*
+*.github.com/
+*.github.com/*
