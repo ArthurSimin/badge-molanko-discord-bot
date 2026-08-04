@@ -16,7 +16,7 @@ from playwright.async_api import async_playwright
 # ---------- 路径配置 ----------
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config"
-SCREENSHOT_DIR = CONFIG_DIR / "screenshots_web"
+SCREENSHOT_DIR = ROOT / "outputs/screenshots_web"
 SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
 
 FIREFOX_COOKIE_DB = Path(os.getenv("FIREFOX_COOKIE_DB", "")) if os.getenv("FIREFOX_COOKIE_DB") else None
@@ -247,6 +247,9 @@ async def capture_screenshot_bytes(
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web_firefox] Capturing screenshot (full_page={full_page})")
             image_bytes = await page.screenshot(full_page=full_page)
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web_firefox] Screenshot captured, size={len(image_bytes)} bytes, final_url={final_url}")
+            #debug_path = CONFIG_DIR / "debug_screenshot.png"
+            #debug_path.write_bytes(image_bytes)
+            #print(f"[DEBUG] Saved screenshot to {debug_path}")
             return image_bytes, final_url
         finally:
             await context.close()

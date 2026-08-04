@@ -12,17 +12,16 @@ from utils.screenshot_security import (
     is_cookie_allowed,
 )
 
-# 预设分辨率映射
+# 预设分辨率: (width, height, default_scale)
 PRESETS = {
-    "480P": (640, 480),
-    "600P": (800, 600),
-    "720P": (1280, 720),
-    "1080P": (1920, 1080),
-    "2K": (2560, 1440),
-    "4K": (3840, 2160),
-    "Tor": (1400, 900),
+    "480P": (640, 480, 1.0),
+    "600P": (800, 600, 1.0),
+    "720P": (1280, 720, 1.0),
+    "1080P": (1920, 1080, 1.0),
+    "2K": (1920, 1080, 1.333334),   # 输出 2560x1440
+    "4K": (1920, 1080, 2.0),     # 输出 3840x2160
+    "Tor": (1400, 900, 1.0),
 }
-
 
 class Screenshot(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -32,12 +31,12 @@ class Screenshot(commands.Cog):
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     @app_commands.describe(
         url="Website URL or domain to capture, e.g. github.com",
-        width="Width in pixels (640-4096, default 1280) – ignored if preset is set",
-        height="Height in pixels (480-4096, default 720) – ignored if preset is set",
-        preset="Select a predefined resolution (overrides width/height)",
+        width="Width in pixels (640-1920, default 1400) – ignored if preset is set",
+        height="Height in pixels (480-1080, default 900) – ignored if preset is set",
+        preset="Select a predefined resolution (overrides width/height and optionally scale)",
         full_page="Capture the entire scrollable page (default False)",
-        scale="Device pixel ratio (zoom), range 0.1-5.0 (default 1.0)",
-        user_agent="Custom User-Agent string (optional)",
+        scale="Device pixel ratio (zoom), 0.1-5.0. If not set, preset may choose a suitable value, else 1.0",
+        # user_agent="Custom User-Agent string (optional)",   # 已注释
     )
     @app_commands.choices(
         preset=[
@@ -49,12 +48,12 @@ class Screenshot(commands.Cog):
         self,
         interaction: discord.Interaction,
         url: str,
-        width: int = 1280,
-        height: int = 720,
+        width: int = 1400,
+        height: int = 900,
         preset: app_commands.Choice[str] | None = None,
         full_page: bool = False,
-        scale: float = 1.0,
-        user_agent: str | None = None,
+        scale: float | None = None,
+        # user_agent: str | None = None,   # 已注释
     ):
         await interaction.response.defer(thinking=True)
 
@@ -99,12 +98,16 @@ class Screenshot(commands.Cog):
         # 4. 判断是否允许注入 Cookie
         inject_cookies = is_cookie_allowed(normalized_url)
 
-        # 5. 应用预设覆盖宽高
+        # 5. 应用预设（覆盖宽高，并可能设置默认 scale）
         if preset:
             preset_name = preset.value
-            w, h = PRESETS.get(preset_name, (width, height))
+            w, h, preset_scale = PRESETS.get(preset_name, (width, height, 1.0))
             width = w
             height = h
+            if scale is None:
+                scale = preset_scale
+        if scale is None:
+            scale = 1.0
 
         # 6. 执行截图
         try:
@@ -113,7 +116,7 @@ class Screenshot(commands.Cog):
                 width=width,
                 height=height,
                 inject_cookies=inject_cookies,
-                user_agent=user_agent,
+                # user_agent=user_agent,   # 已注释，不传递自定义 UA
                 full_page=full_page,
                 device_scale_factor=scale,
             )
@@ -124,15 +127,19 @@ class Screenshot(commands.Cog):
             await interaction.followup.send(f"Screenshot failed: {exc}", ephemeral=True)
             return
 
-        # 7. 发送结果，显示最终 URL
+        output_width = int((width * scale))
+        output_height = int((height * scale))
+
+        # 7. 发送结果
         content_parts = [
             f"**URL:** {final_url}",
-            f"**Resolution:** {width}x{height}",
+            f"**Viewport:** {width}x{height}",
+            f"**Output resolution:** {output_width}x{output_height}",
             f"**Full page:** {full_page}",
             f"**Scale:** {scale}",
         ]
-        if user_agent:
-            content_parts.append(f"**User-Agent:** {user_agent}")
+        # if user_agent:   # 已注释
+        #     content_parts.append(f"**User-Agent:** {user_agent}")
         content = "\n".join(content_parts)
 
         await interaction.followup.send(
