@@ -10,6 +10,8 @@ from utils.screenshot_security import (
     resolve_ip,
     is_private_ip,
     is_cookie_allowed,
+    is_fullpage_allowed,
+    should_block_media,   # 新增导入
 )
 
 # 预设分辨率: (width, height, default_scale)
@@ -19,7 +21,7 @@ PRESETS = {
     "720P": (1280, 720, 1.0),
     "1080P": (1920, 1080, 1.0),
     "2K": (1920, 1080, 1.333334),   # 输出 2560x1440
-    "4K": (1920, 1080, 2.0),     # 输出 3840x2160
+    "4K": (1920, 1080, 2.0),        # 输出 3840x2160
     "Tor": (1400, 900, 1.0),
 }
 
@@ -119,6 +121,7 @@ class Screenshot(commands.Cog):
                 # user_agent=user_agent,   # 已注释，不传递自定义 UA
                 full_page=full_page,
                 device_scale_factor=scale,
+                block_media=block_media,
             )
         except ValueError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
@@ -127,12 +130,47 @@ class Screenshot(commands.Cog):
             await interaction.followup.send(f"Screenshot failed: {exc}", ephemeral=True)
             return
 
+        # ---------- 新增：重定向后安全检查 ----------
+        try:
+            # 7a. 检查最终 URL 是否仍然符合域名白/黑名单
+            if not is_domain_allowed(final_url):
+                await interaction.followup.send(
+                    f"Redirected URL '{final_url}' is not allowed by whitelist/blacklist policy.",
+                    ephemeral=True
+                )
+                return
+
+            # 7b. 如果是全页截图，检查是否允许对最终域名进行全页截图
+            if full_page and not is_fullpage_allowed(final_url):
+                await interaction.followup.send(
+                    f"Full-page screenshot is not allowed for '{final_url}'. Please use a domain from the full-page whitelist.",
+                    ephemeral=True
+                )
+                return
+
+            # 7c. 检查最终 URL 的主机名是否解析为私有 IP
+            parsed_final = urlparse(final_url)
+            final_hostname = parsed_final.hostname
+            if final_hostname:
+                final_ip = resolve_ip(final_hostname)
+                if is_private_ip(final_ip):
+                    await interaction.followup.send(
+                        f"Redirected URL resolved to private IP address: {final_hostname} -> {final_ip}",
+                        ephemeral=True
+                    )
+                    return
+        except Exception as exc:
+            await interaction.followup.send(f"Security check on redirected URL failed: {exc}", ephemeral=True)
+            return
+        # ----------------------------------------------
+
+        # 8. 获取图片实际尺寸
         from PIL import Image
         from io import BytesIO
         with Image.open(BytesIO(image_bytes)) as img:
             output_width, output_height = img.size
 
-        # 7. 发送结果
+        # 9. 发送结果
         content_parts = [
             f"**URL:** {final_url}",
             f"**Viewport:** {width}x{height}",

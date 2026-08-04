@@ -1,0 +1,4 @@
+example.com
+wikipedia.org
+github.com
+minecraft.wiki
