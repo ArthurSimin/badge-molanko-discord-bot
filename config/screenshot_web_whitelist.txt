@@ -2,25 +2,14 @@ example.com
 
 github.com
 
-google.com
-duckduckgo.com
-baidu.com
-
-s.team
-steampowered.com
-steamcommunity.com
-
-youtube.com
-youtu.be
-bilibili.com
-
 time.is
 
 modrinth.com
 curseforge.com
 
 minecraft.wiki
-wikipedia.org
-wikimedia.org
+https://zh.wikipedia.org/wiki/Wikipedia:%E9%A6%96%E9%A1%B5
+https://en.wikipedia.org/wiki/Main_Page
 
 apple.com
+mi.com

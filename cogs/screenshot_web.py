@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 from io import BytesIO
 from urllib.parse import urlparse
+import math
 
 from lanlan3292_python_screenshot_web.firefox import capture_screenshot_bytes, normalize_url
 from utils.screenshot_security import (
@@ -11,7 +12,7 @@ from utils.screenshot_security import (
     is_private_ip,
     is_cookie_allowed,
     is_fullpage_allowed,
-    should_block_media,   # 新增导入
+    should_block_media,
 )
 
 # 预设分辨率: (width, height, default_scale)
@@ -38,6 +39,7 @@ class Screenshot(commands.Cog):
         preset="Select a predefined resolution (overrides width/height and optionally scale)",
         full_page="Capture the entire scrollable page (default False)",
         scale="Device pixel ratio (zoom), 0.1-5.0. If not set, preset may choose a suitable value, else 1.0",
+        block_media="Force blocking of images/videos? If True, always block; if False or not set, use default policy.",
         # user_agent="Custom User-Agent string (optional)",   # 已注释
     )
     @app_commands.choices(
@@ -55,6 +57,7 @@ class Screenshot(commands.Cog):
         preset: app_commands.Choice[str] | None = None,
         full_page: bool = False,
         scale: float | None = None,
+        block_media: bool | None = None,   # 新增参数
         # user_agent: str | None = None,   # 已注释
     ):
         await interaction.response.defer(thinking=True)
@@ -111,8 +114,10 @@ class Screenshot(commands.Cog):
         if scale is None:
             scale = 1.0
 
-        # ----- 新增：根据名单决定是否阻止媒体 -----
-        block_media = should_block_media(normalized_url)
+        # ----- 新增：根据名单和用户参数决定是否阻止媒体 -----
+        default_block = should_block_media(normalized_url)
+        # 用户明确传 True → 强制阻止，否则使用默认策略（即传 False 或不传都按默认）
+        final_block = True if block_media is True else default_block
 
         # 6. 执行截图
         try:
@@ -124,7 +129,7 @@ class Screenshot(commands.Cog):
                 # user_agent=user_agent,   # 已注释，不传递自定义 UA
                 full_page=full_page,
                 device_scale_factor=scale,
-                block_media=block_media,
+                block_media=final_block,   # 使用最终计算值
             )
         except ValueError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
@@ -178,11 +183,15 @@ class Screenshot(commands.Cog):
             f"**URL:** {final_url}",
             f"**Viewport:** {width}x{height}",
             f"**Output resolution:** {output_width}x{output_height}",
-            f"**Full page:** {full_page}",
-            f"**Scale:** {scale}",
         ]
         # if user_agent:   # 已注释
         #     content_parts.append(f"**User-Agent:** {user_agent}")
+        if not math.isclose(float(scale), 1.0):
+            content_parts.append(f"**Scale:** {scale}")
+        if full_page:
+            content_parts.append(f"**Full page:** {full_page}")
+        if final_block:
+            content_parts.append(f"**Block Media:** {final_block}")
         content = "\n".join(content_parts)
 
         await interaction.followup.send(

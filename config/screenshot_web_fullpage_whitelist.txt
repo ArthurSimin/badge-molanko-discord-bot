@@ -2,3 +2,5 @@ example.com
 wikipedia.org
 github.com
 minecraft.wiki
+apple.com
+mi.com

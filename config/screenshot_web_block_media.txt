@@ -1,8 +1,11 @@
 wikipedia.org
+*/wikipedia.org/*
 *.wikipedia.org/
 *.wikipedia.org/*
 wikimedia.org
+*/wikimedia.org/*
 *.wikimedia.org/
 *.wikimedia.org/*
+*/github.com/*
 *.github.com/
 *.github.com/*
