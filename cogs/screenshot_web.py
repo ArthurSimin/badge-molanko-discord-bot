@@ -127,8 +127,10 @@ class Screenshot(commands.Cog):
             await interaction.followup.send(f"Screenshot failed: {exc}", ephemeral=True)
             return
 
-        output_width = int((width * scale))
-        output_height = int((height * scale))
+        from PIL import Image
+        from io import BytesIO
+        with Image.open(BytesIO(image_bytes)) as img:
+            output_width, output_height = img.size
 
         # 7. 发送结果
         content_parts = [
