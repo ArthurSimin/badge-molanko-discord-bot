@@ -129,26 +129,40 @@ def load_firefox_cookies(hostname: str, db_path: Path | None = None) -> list[dic
 # ---------- 核心截图函数（无安全检查，Cookie 注入由参数控制） ----------
 async def capture_screenshot_bytes(
     url: str,
-    width: int = 1280,
-    height: int = 720,
-    inject_cookies: bool = False,      # 是否注入 Cookie（由调用方决定）
-) -> bytes:
+    width: int = 1400,
+    height: int = 900,
+    inject_cookies: bool = False,
+    user_agent: str | None = None,
+    full_page: bool = False,
+    device_scale_factor: float = 1.0,
+) -> tuple[bytes, str]:
     """
-    截图并返回图片字节数据。
+    截图并返回 (图片字节数据, 最终URL)。
     不再进行任何安全检查（白名单、IP、Cookie 白名单等）。
     若 inject_cookies=True，则自动加载 Firefox 中匹配的 Cookie 并注入。
+
+    参数:
+        url: 目标 URL
+        width: 视口宽度（640~4096）
+        height: 视口高度（480~4096）
+        inject_cookies: 是否注入 Cookie
+        user_agent: 自定义 User-Agent，不提供则使用默认
+        full_page: 是否截取整个页面（滚动截图）
+        device_scale_factor: 设备像素比（缩放），范围 0.1~5.0，默认 1.0
     """
-    if not (640 <= width <= 2048):
-        raise ValueError(f"Width must be between 640 and 2048, got {width}")
-    if not (480 <= height <= 2048):
-        raise ValueError(f"Height must be between 480 and 2048, got {height}")
+    if not (640 <= width <= 4096):
+        raise ValueError(f"Width must be between 640 and 4096, got {width}")
+    if not (480 <= height <= 4096):
+        raise ValueError(f"Height must be between 480 and 4096, got {height}")
+    if not (0.1 <= device_scale_factor <= 5.0):
+        raise ValueError(f"device_scale_factor must be between 0.1 and 5.0, got {device_scale_factor}")
 
     normalized = normalize_url(url)
     parsed = urlparse(normalized)
     hostname = parsed.hostname or ""
 
     async with async_playwright() as playwright:
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web_firefox] Launching Firefox for {normalized} with viewport {width}x{height}")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web_firefox] Launching Firefox for {normalized} with viewport {width}x{height}, scale={device_scale_factor}, full_page={full_page}")
         browser = await playwright.firefox.launch(
             headless=True,
             firefox_user_prefs={
@@ -173,14 +187,19 @@ async def capture_screenshot_bytes(
                 "geo.provider.use_os_location": False,
             },
         )
-        context = await browser.new_context(
-            viewport={"width": width, "height": height},
-            locale="en-US",
-            timezone_id="UTC",
-            extra_http_headers={"Accept-Language": "en-US,en;q=0.9"}
-        )
+        context_options = {
+            "viewport": {"width": width, "height": height},
+            "locale": "en-US",
+            "timezone_id": "UTC",
+            "extra_http_headers": {"Accept-Language": "en-US,en;q=0.9"},
+            "device_scale_factor": device_scale_factor,
+        }
+        if user_agent:
+            context_options["user_agent"] = user_agent
+
+        context = await browser.new_context(**context_options)
         try:
-            # Cookie 注入：根据参数决定
+            # Cookie 注入
             if inject_cookies:
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web_firefox] Cookie injection enabled for {hostname}")
                 cookies = load_firefox_cookies(hostname)
@@ -222,10 +241,13 @@ async def capture_screenshot_bytes(
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web_firefox] Load state warning: {exc}")
             await page.wait_for_timeout(5000)
 
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web_firefox] Capturing screenshot")
-            image_bytes = await page.screenshot(full_page=False)
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web_firefox] Screenshot captured, size={len(image_bytes)} bytes")
-            return image_bytes
+            # 获取最终 URL
+            final_url = page.url
+
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web_firefox] Capturing screenshot (full_page={full_page})")
+            image_bytes = await page.screenshot(full_page=full_page)
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [screenshot_web_firefox] Screenshot captured, size={len(image_bytes)} bytes, final_url={final_url}")
+            return image_bytes, final_url
         finally:
             await context.close()
             await browser.close()
@@ -235,8 +257,14 @@ async def capture_screenshot(
     url: str,
     output_path: Path | None = None,
     inject_cookies: bool = False,
-) -> Path:
-    """截图并保存到文件，接受 inject_cookies 参数"""
+    user_agent: str | None = None,
+    full_page: bool = False,
+    device_scale_factor: float = 1.0,
+) -> tuple[Path, str]:
+    """
+    截图并保存到文件，返回 (保存路径, 最终URL)。
+    参数同 capture_screenshot_bytes。
+    """
     normalized = normalize_url(url)
     parsed = urlparse(normalized)
     host = parsed.hostname or "page"
@@ -246,6 +274,12 @@ async def capture_screenshot(
         output_path = SCREENSHOT_DIR / file_name
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    image_bytes = await capture_screenshot_bytes(normalized, inject_cookies=inject_cookies)
+    image_bytes, final_url = await capture_screenshot_bytes(
+        normalized,
+        inject_cookies=inject_cookies,
+        user_agent=user_agent,
+        full_page=full_page,
+        device_scale_factor=device_scale_factor,
+    )
     output_path.write_bytes(image_bytes)
-    return output_path
+    return output_path, final_url

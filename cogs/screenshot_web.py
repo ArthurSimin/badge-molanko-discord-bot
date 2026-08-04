@@ -4,7 +4,6 @@ from discord.ext import commands
 from io import BytesIO
 from urllib.parse import urlparse
 
-# 导入拆分后的模块
 from utils.screenshot_web_firefox import capture_screenshot_bytes, normalize_url
 from utils.screenshot_security import (
     is_domain_allowed,
@@ -13,19 +12,50 @@ from utils.screenshot_security import (
     is_cookie_allowed,
 )
 
+# 预设分辨率映射
+PRESETS = {
+    "480P": (640, 480),
+    "600P": (800, 600),
+    "720P": (1280, 720),
+    "1080P": (1920, 1080),
+    "2K": (2560, 1440),
+    "4K": (3840, 2160),
+    "Tor": (1400, 900),
+}
+
 
 class Screenshot(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="screenshot_web", description="Capture a whitelisted web page screenshot at specified resolution")
+    @app_commands.command(name="screenshot_web", description="Capture a whitelisted web page screenshot")
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     @app_commands.describe(
-        url="Website URL or domain to capture, such as github.com",
-        width="Width in pixels (640-1920, default 1280)",
-        height="Height in pixels (480-1080, default 720)"
+        url="Website URL or domain to capture, e.g. github.com",
+        width="Width in pixels (640-4096, default 1280) – ignored if preset is set",
+        height="Height in pixels (480-4096, default 720) – ignored if preset is set",
+        preset="Select a predefined resolution (overrides width/height)",
+        full_page="Capture the entire scrollable page (default False)",
+        scale="Device pixel ratio (zoom), range 0.1-5.0 (default 1.0)",
+        user_agent="Custom User-Agent string (optional)",
     )
-    async def screenshot_web(self, interaction: discord.Interaction, url: str, width: int = 1280, height: int = 720):
+    @app_commands.choices(
+        preset=[
+            app_commands.Choice(name=name, value=name)
+            for name in PRESETS.keys()
+        ]
+    )
+    async def screenshot_web(
+        self,
+        interaction: discord.Interaction,
+        url: str,
+        width: int = 1280,
+        height: int = 720,
+        preset: app_commands.Choice[str] | None = None,
+        full_page: bool = False,
+        scale: float = 1.0,
+        user_agent: str | None = None,
+    ):
         await interaction.response.defer(thinking=True)
 
         # 1. 标准化 URL
@@ -66,16 +96,26 @@ class Screenshot(commands.Cog):
             await interaction.followup.send(f"DNS resolution or private IP check failed: {exc}", ephemeral=True)
             return
 
-        # 4. 判断是否允许注入 Cookie（根据 Cookie 白名单）
+        # 4. 判断是否允许注入 Cookie
         inject_cookies = is_cookie_allowed(normalized_url)
 
-        # 5. 执行截图（无额外安全检查）
+        # 5. 应用预设覆盖宽高
+        if preset:
+            preset_name = preset.value
+            w, h = PRESETS.get(preset_name, (width, height))
+            width = w
+            height = h
+
+        # 6. 执行截图
         try:
-            image_bytes = await capture_screenshot_bytes(
+            image_bytes, final_url = await capture_screenshot_bytes(
                 normalized_url,
-                width,
-                height,
-                inject_cookies=inject_cookies
+                width=width,
+                height=height,
+                inject_cookies=inject_cookies,
+                user_agent=user_agent,
+                full_page=full_page,
+                device_scale_factor=scale,
             )
         except ValueError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
@@ -84,9 +124,19 @@ class Screenshot(commands.Cog):
             await interaction.followup.send(f"Screenshot failed: {exc}", ephemeral=True)
             return
 
-        # 6. 发送结果
+        # 7. 发送结果，显示最终 URL
+        content_parts = [
+            f"**URL:** {final_url}",
+            f"**Resolution:** {width}x{height}",
+            f"**Full page:** {full_page}",
+            f"**Scale:** {scale}",
+        ]
+        if user_agent:
+            content_parts.append(f"**User-Agent:** {user_agent}")
+        content = "\n".join(content_parts)
+
         await interaction.followup.send(
-            content=f"Captured: {normalized_url} ({width}x{height})",
+            content=content,
             file=discord.File(BytesIO(image_bytes), filename="screenshot.png"),
         )
 
