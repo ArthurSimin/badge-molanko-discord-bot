@@ -4,4 +4,4 @@ __pycache__
 .pytest_cache
 /tests
 /config/firefox-cookies-*/
-/test.py
+test.py
