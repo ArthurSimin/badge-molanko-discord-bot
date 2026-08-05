@@ -4,5 +4,4 @@ __pycache__
 .pytest_cache
 /tests
 /config/firefox-cookies-*/
-/config/screenshots_web/*
-/output
+/test.py
