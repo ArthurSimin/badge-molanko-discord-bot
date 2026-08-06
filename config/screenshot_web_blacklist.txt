@@ -27,3 +27,4 @@ ip-api.com
 test-ipv6.com
 bgp.he.net
 bgp.tools
+*minecraft.wiki/w/User:*
