@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # utils/mcskin.py
 
+import os
 import json
 import re
 import urllib.request
