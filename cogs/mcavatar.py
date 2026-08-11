@@ -97,7 +97,7 @@ class MinecraftAvatarCog(commands.Cog):
         outline_color="Outline color: auto_dark / auto_darker / auto_medium_dark or hex (#000000)",
         bg_color="Background color: auto_light / auto_lighter / auto_medium_light or hex (#ffffff)",
         fill_background="Whether to fill the background",
-        upscale48="First upscale to 48x48 before scaling (better detail)"
+        upscale48="Upscale to 48x48 scaling"
     )
     @app_commands.choices(
         outline=[
