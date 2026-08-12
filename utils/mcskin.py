@@ -8,7 +8,7 @@ import urllib.request
 import urllib.error
 
 email_env = os.getenv("EMAIL")
-email_str = f"; <{email_env}>" if email_env else ""
+email_str = f"; <{email_env}>" if email_env else (_ for _ in ()).throw(ValueError("need email"))
 
 USER_AGENT = f"Molankobot/1.0 (+https://git.gay/lanlan3292/molanko-discord-bot{email_str})"
 
