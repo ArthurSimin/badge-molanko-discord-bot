@@ -4,3 +4,4 @@ playwright
 psutil
 py-cpuinfo
 git+https://github.com/lanlan3292/lanlan3292_python_screenshot_web.git
+mcstatus
