@@ -14,6 +14,7 @@ from discord.ext import commands
 class AvatarProcessingError(Exception):
     pass
 
+
 async def fetch_skin_from_username(username: str) -> bytes:
     """从 Mojang API 获取玩家皮肤图片"""
     async with aiohttp.ClientSession() as session:
@@ -52,6 +53,7 @@ async def fetch_skin_from_username(username: str) -> bytes:
                 raise ValueError("Failed to download skin")
             return await resp.read()
 
+
 async def process_skin_nodejs(image_data: bytes, options: dict) -> bytes:
     """调用 Node.js 脚本处理皮肤图片"""
     script_path = Path(__file__).parent.parent / "scripts" / "process_avatar.js"
@@ -80,6 +82,7 @@ async def process_skin_nodejs(image_data: bytes, options: dict) -> bytes:
 
     return stdout
 
+
 class MinecraftAvatarCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -97,7 +100,8 @@ class MinecraftAvatarCog(commands.Cog):
         outline_color="Outline color: auto_dark / auto_darker / auto_medium_dark or hex (#000000)",
         bg_color="Background color: auto_light / auto_lighter / auto_medium_light or hex (#ffffff)",
         fill_background="Whether to fill the background",
-        upscale48="Upscale to 48x48 scaling"
+        upscale48="Upscale to 48x48 scaling",
+        average_color="Override the average color used for auto outline/bg. Hex color code (e.g. #ff0000) or 'auto' for automatic."
     )
     @app_commands.choices(
         outline=[
@@ -117,6 +121,7 @@ class MinecraftAvatarCog(commands.Cog):
         bg_color: str = "auto_light",
         fill_background: bool = True,
         upscale48: bool = True,
+        average_color: Optional[str] = None,
     ):
         await interaction.response.defer(thinking=True)
 
@@ -151,6 +156,30 @@ class MinecraftAvatarCog(commands.Cog):
             "upscale48": upscale48,
         }
 
+        # 处理 average_color
+        if average_color:
+            if average_color.lower() == "auto":
+                # 明确指定 auto 时，不传递 averageColor，让 Node.js 自动计算
+                pass
+            else:
+                # 解析十六进制颜色
+                try:
+                    hex_str = average_color.lstrip("#")
+                    if len(hex_str) == 3:
+                        hex_str = "".join(c * 2 for c in hex_str)
+                    if len(hex_str) != 6:
+                        raise ValueError("Invalid hex length")
+                    r = int(hex_str[0:2], 16)
+                    g = int(hex_str[2:4], 16)
+                    b = int(hex_str[4:6], 16)
+                    options["averageColor"] = {"r": r, "g": g, "b": b}
+                except Exception:
+                    await interaction.followup.send(
+                        "Invalid average_color format. Use hex like #ff0000 or #f00.",
+                        ephemeral=True
+                    )
+                    return
+
         # 调用 Node.js 处理
         try:
             result_data = await process_skin_nodejs(image_data, options)
@@ -169,10 +198,12 @@ class MinecraftAvatarCog(commands.Cog):
 
         # 发送结果
         file = discord.File(BytesIO(result_data), filename="avatar.png")
+        player_display = player or "attachment"
         await interaction.followup.send(
-            content=f"✅ Avatar generated for **{player or 'attachment'}**",
+            content=f"✅ Avatar generated for **{player_display}**",
             file=file
         )
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MinecraftAvatarCog(bot))
