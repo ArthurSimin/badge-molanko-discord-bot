@@ -9,7 +9,7 @@ import math
 from lanlan3292_python_screenshot_web.firefox import capture_screenshot_bytes, normalize_url
 from utils.screenshot_security import (
     is_domain_allowed,
-    resolve_ip,
+    resolve_ip_async,
     is_private_ip,
     is_cookie_allowed,
     is_fullpage_allowed,
@@ -64,55 +64,42 @@ class Screenshot(commands.Cog):
             await interaction.followup.send(str(exc), ephemeral=True)
             return
 
-        # File reads/matching are tiny, but DNS is blocking and must not run on
-        # the Discord event loop.
         try:
             allowed = await asyncio.to_thread(is_domain_allowed, normalized_url)
-        except Exception as exc:
-            await interaction.followup.send(f"Security policy check failed: {exc}", ephemeral=True)
-            return
-        if not allowed:
-            await interaction.followup.send(
-                "This domain is not allowed by the whitelist/blacklist policy.",
-                ephemeral=True,
-            )
-            return
+            if not allowed:
+                await interaction.followup.send(
+                    "This domain is not allowed by the whitelist/blacklist policy.",
+                    ephemeral=True,
+                )
+                return
 
-        parsed = urlparse(normalized_url)
-        hostname = parsed.hostname
-        if not hostname:
-            await interaction.followup.send("Invalid URL: no hostname found.", ephemeral=True)
-            return
+            parsed = urlparse(normalized_url)
+            hostname = parsed.hostname
+            if not hostname:
+                await interaction.followup.send("Invalid URL: no hostname found.", ephemeral=True)
+                return
 
-        try:
-            ip = await asyncio.to_thread(resolve_ip, hostname)
+            ip = await resolve_ip_async(hostname)
             if is_private_ip(ip):
                 await interaction.followup.send(
                     f"Access to private IP addresses is not allowed (resolved {hostname} -> {ip})",
                     ephemeral=True,
                 )
                 return
-        except Exception as exc:
-            await interaction.followup.send(
-                f"DNS resolution or private IP check failed: {exc}",
-                ephemeral=True,
-            )
-            return
 
-        inject_cookies = await asyncio.to_thread(is_cookie_allowed, normalized_url)
+            inject_cookies = await asyncio.to_thread(is_cookie_allowed, normalized_url)
 
-        if preset:
-            preset_name = preset.value
-            width, height, preset_scale = PRESETS.get(preset_name, (width, height, 1.0))
+            if preset:
+                preset_name = preset.value
+                width, height, preset_scale = PRESETS.get(preset_name, (width, height, 1.0))
+                if scale is None:
+                    scale = preset_scale
             if scale is None:
-                scale = preset_scale
-        if scale is None:
-            scale = 1.0
+                scale = 1.0
 
-        default_block = await asyncio.to_thread(should_block_media, normalized_url)
-        final_block = True if block_media is True else default_block
+            default_block = await asyncio.to_thread(should_block_media, normalized_url)
+            final_block = block_media is True or default_block
 
-        try:
             image_bytes, final_url = await capture_screenshot_bytes(
                 normalized_url,
                 width=width,
@@ -122,14 +109,7 @@ class Screenshot(commands.Cog):
                 device_scale_factor=scale,
                 block_media=final_block,
             )
-        except ValueError as exc:
-            await interaction.followup.send(str(exc), ephemeral=True)
-            return
-        except Exception as exc:
-            await interaction.followup.send(f"Screenshot failed: {exc}", ephemeral=True)
-            return
 
-        try:
             final_allowed = await asyncio.to_thread(is_domain_allowed, final_url)
             if not final_allowed:
                 await interaction.followup.send(
@@ -150,21 +130,21 @@ class Screenshot(commands.Cog):
             parsed_final = urlparse(final_url)
             final_hostname = parsed_final.hostname
             if final_hostname:
-                final_ip = await asyncio.to_thread(resolve_ip, final_hostname)
+                final_ip = await resolve_ip_async(final_hostname)
                 if is_private_ip(final_ip):
                     await interaction.followup.send(
                         f"Redirected URL resolved to private IP address: {final_hostname} -> {final_ip}",
                         ephemeral=True,
                     )
                     return
+
+        except ValueError as exc:
+            await interaction.followup.send(str(exc), ephemeral=True)
+            return
         except Exception as exc:
-            await interaction.followup.send(
-                f"Security check on redirected URL failed: {exc}",
-                ephemeral=True,
-            )
+            await interaction.followup.send(f"Screenshot failed: {exc}", ephemeral=True)
             return
 
-        # PIL decoding can also be CPU/blocking work; keep it off the event loop.
         def get_image_size(data: bytes) -> tuple[int, int]:
             from PIL import Image
             with Image.open(BytesIO(data)) as img:
