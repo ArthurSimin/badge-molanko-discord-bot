@@ -60,10 +60,8 @@ async def process_skin_nodejs(image_data: bytes, options: dict) -> bytes:
     if not script_path.exists():
         raise FileNotFoundError(f"Node.js script not found at {script_path}")
 
-    # 将选项转为 JSON 字符串
     options_json = json.dumps(options)
 
-    # 启动子进程
     proc = await asyncio.create_subprocess_exec(
         "node",
         str(script_path),
@@ -73,7 +71,6 @@ async def process_skin_nodejs(image_data: bytes, options: dict) -> bytes:
         stderr=subprocess.PIPE,
     )
 
-    # 传递图片数据，等待完成
     stdout, stderr = await proc.communicate(input=image_data)
 
     if proc.returncode != 0:
@@ -97,8 +94,8 @@ class MinecraftAvatarCog(commands.Cog):
         image="Skin image attachment (optional if player is provided)",
         scale="Final upscale factor (default 10)",
         outline="Outline pixel width: 0=off, 1=1px, 2=2px",
-        outline_color="Outline color: auto_dark / auto_darker / auto_medium_dark or hex (#000000)",
-        bg_color="Background color: auto_light / auto_lighter / auto_medium_light or hex (#ffffff)",
+        outline_color="Outline color: auto / auto_darker / auto_lighter or hex (#000000)",
+        bg_color="Background color: auto / auto_lighter / auto_darker or hex (#ffffff)",
         fill_background="Whether to fill the background",
         upscale48="Upscale to 48x48 scaling",
         average_color="Override the average color used for auto outline/bg. Hex color code (e.g. #ff0000) or 'auto' for automatic."
@@ -117,15 +114,14 @@ class MinecraftAvatarCog(commands.Cog):
         image: Optional[discord.Attachment] = None,
         scale: int = 10,
         outline: int = 2,
-        outline_color: str = "auto_dark",
-        bg_color: str = "auto_light",
+        outline_color: str = "auto_darker",
+        bg_color: str = "auto_lighter",
         fill_background: bool = True,
         upscale48: bool = True,
         average_color: Optional[str] = None,
     ):
         await interaction.response.defer(thinking=True)
 
-        # 至少提供 player 或 image
         if not player and not image:
             await interaction.followup.send(
                 "You must provide either a player name or an image attachment.",
@@ -133,7 +129,6 @@ class MinecraftAvatarCog(commands.Cog):
             )
             return
 
-        # 获取皮肤图片数据
         try:
             if image:
                 if not image.content_type or not image.content_type.startswith("image/"):
@@ -146,7 +141,6 @@ class MinecraftAvatarCog(commands.Cog):
             await interaction.followup.send(f"Failed to get skin image: {e}", ephemeral=True)
             return
 
-        # 构建 Node.js 选项
         options = {
             "scale": scale,
             "outlineMode": outline,
@@ -156,13 +150,10 @@ class MinecraftAvatarCog(commands.Cog):
             "upscale48": upscale48,
         }
 
-        # 处理 average_color
         if average_color:
             if average_color.lower() == "auto":
-                # 明确指定 auto 时，不传递 averageColor，让 Node.js 自动计算
                 pass
             else:
-                # 解析十六进制颜色
                 try:
                     hex_str = average_color.lstrip("#")
                     if len(hex_str) == 3:
@@ -180,13 +171,12 @@ class MinecraftAvatarCog(commands.Cog):
                     )
                     return
 
-        # 调用 Node.js 处理
         try:
             result_data = await process_skin_nodejs(image_data, options)
         except AvatarProcessingError as e:
             await interaction.followup.send(f"Processing failed: {e}", ephemeral=True)
             return
-        except FileNotFoundError as e:
+        except FileNotFoundError:
             await interaction.followup.send(
                 "Internal error: Node.js script not found. Please contact admin.",
                 ephemeral=True
@@ -196,7 +186,6 @@ class MinecraftAvatarCog(commands.Cog):
             await interaction.followup.send(f"Unexpected error: {e}", ephemeral=True)
             return
 
-        # 发送结果
         file = discord.File(BytesIO(result_data), filename="avatar.png")
         player_display = player or "attachment"
         await interaction.followup.send(
