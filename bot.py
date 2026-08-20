@@ -15,37 +15,18 @@ from terminal_commands import TerminalCommandHandler
 
 logging.basicConfig(level=logging.INFO)
 
-
-# ======================
-# Paths
-# ======================
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_FILE = os.path.join(BASE_DIR, "discord_bot.env")
 COGS_DIR = os.path.join(BASE_DIR, "cogs")
 UTILS_DIR = os.path.join(BASE_DIR, "utils")
-
-
-# ======================
-# Load TOKEN
-# ======================
 
 load_dotenv(ENV_FILE)
 TOKEN = os.getenv("TOKEN")
 if not TOKEN:
     raise ValueError("TOKEN not found in discord_bot.env")
 
-
-# ======================
-# Intents
-# ======================
-
 intents = discord.Intents.default()
 
-
-# ======================
-# Helpers
-# ======================
 
 def log_message(msg: str) -> None:
     """Print a timestamped log message to the console."""
@@ -53,21 +34,16 @@ def log_message(msg: str) -> None:
     print(f"[{timestamp}] {msg}")
 
 
-# ======================
-# Bot
-# ======================
-
 class MyBot(commands.Bot):
     def __init__(self) -> None:
         super().__init__(command_prefix="!", intents=intents)
-
         self.cogs_dir = COGS_DIR
         self.utils_dir = UTILS_DIR
         self.cmd_handler = TerminalCommandHandler(self)
         self._terminal_task: asyncio.Task | None = None
 
     async def setup_hook(self) -> None:
-        """Load extensions and start background tasks exactly once per Bot instance."""
+        """Load extensions and start background tasks once per Bot instance."""
         await self._load_cogs()
 
         try:
@@ -76,8 +52,8 @@ class MyBot(commands.Bot):
         except Exception:
             logging.exception("Slash command sync failed")
 
-        # setup_hook runs once for a Bot instance, unlike on_ready which can run
-        # repeatedly after Discord reconnects.
+        # setup_hook runs once per Bot instance. on_ready may run repeatedly
+        # when Discord reconnects, so background tasks should not start there.
         self._terminal_task = asyncio.create_task(
             self.terminal_loop(),
             name="terminal-loop",
@@ -85,7 +61,6 @@ class MyBot(commands.Bot):
 
     async def _load_cogs(self) -> None:
         print("Loading cogs...")
-
         if not os.path.isdir(self.cogs_dir):
             print("cogs folder not found")
             return
@@ -105,7 +80,6 @@ class MyBot(commands.Bot):
         """Read terminal commands without blocking Discord's event loop."""
         while True:
             try:
-                # stdin.readline() is blocking. Keep it outside the event loop.
                 line = await asyncio.to_thread(sys.stdin.readline)
                 if not line:
                     print("EOF detected, stopping terminal loop")
@@ -118,7 +92,6 @@ class MyBot(commands.Bot):
                 parts = line.split(maxsplit=1)
                 command = parts[0].lower()
                 argument = parts[1] if len(parts) > 1 else None
-
                 await self.cmd_handler.dispatch(command, argument)
 
             except asyncio.CancelledError:
@@ -132,11 +105,15 @@ class MyBot(commands.Bot):
         self._terminal_task = None
 
         if terminal_task and not terminal_task.done():
-            terminal_task.cancel()
-            try:
-                await terminal_task
-            except asyncio.CancelledError:
-                pass
+            if terminal_task is asyncio.current_task():
+                # close() can be called by the terminal command itself.
+                terminal_task.cancel()
+            else:
+                terminal_task.cancel()
+                try:
+                    await terminal_task
+                except asyncio.CancelledError:
+                    pass
 
         await super().close()
 
@@ -150,10 +127,7 @@ class MyBot(commands.Bot):
             type=discord.ActivityType.watching,
             name="/time | /version",
         )
-        await self.change_presence(
-            status=discord.Status.online,
-            activity=activity,
-        )
+        await self.change_presence(status=discord.Status.online, activity=activity)
 
         print("Bot is ONLINE!")
         print("========================")
@@ -169,19 +143,15 @@ class MyBot(commands.Bot):
             return
 
         data = interaction.data
-        command_type = data.get("type")
-        command_name = data.get("name")
-
         labels = {
             1: "Slash command",
             2: "User context menu command",
             3: "Message context menu command",
         }
-        command_label = labels.get(command_type, "Unknown application command")
-
+        command_label = labels.get(data.get("type"), "Unknown application command")
         log_message(
             f"{command_label} invoked by {interaction.user} "
-            f"(ID: {interaction.user.id}) with command '{command_name}'"
+            f"(ID: {interaction.user.id}) with command '{data.get('name')}'"
         )
 
     async def on_error(self, event: str, *args, **kwargs) -> None:
@@ -193,7 +163,6 @@ class MyBot(commands.Bot):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        """Global error handler for application commands."""
         command_name = getattr(interaction.command, "name", "unknown")
         log_message(
             f"ERROR in command '{command_name}' invoked by "
@@ -212,26 +181,19 @@ class MyBot(commands.Bot):
                 logging.exception("Failed to send application command error")
 
 
-# ======================
-# Main
-# ======================
-
 async def main() -> None:
     max_retries = 5
     retry_delay = 5
 
     for attempt in range(1, max_retries + 1):
         bot = MyBot()
-
         try:
             async with bot:
                 await bot.start(TOKEN)
             return
-
         except discord.LoginFailure:
             print("Invalid TOKEN, please check discord_bot.env")
             return
-
         except Exception:
             logging.exception(
                 "Connection attempt %s/%s failed",
@@ -246,8 +208,6 @@ async def main() -> None:
             print(f"Retrying in {retry_delay} seconds...")
             await asyncio.sleep(retry_delay)
             retry_delay *= 2
-
-    print("Bot stopped")
 
 
 if __name__ == "__main__":
