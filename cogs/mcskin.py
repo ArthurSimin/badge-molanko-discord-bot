@@ -1,9 +1,12 @@
+import asyncio
+from io import BytesIO
+
 import discord
 from discord import app_commands
 from discord.ext import commands
-from io import BytesIO
 
 from utils.mcskin import get_player_image
+
 
 class MinecraftSkinCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -32,11 +35,17 @@ class MinecraftSkinCog(commands.Cog):
     ):
         await interaction.response.defer(thinking=True)
 
-        # 若未提供，默认使用 "face"
+        # 若未提供，默认使用 "skin"
         img_type = image_type.value if image_type else "skin"
 
         try:
-            image_data = get_player_image(player, img_type=img_type)
+            # utils.mcskin 使用 urllib.request，是同步阻塞 I/O。
+            # 放到线程池，避免 DNS/HTTP 卡住 Discord.py 的事件循环。
+            image_data = await asyncio.to_thread(
+                get_player_image,
+                player,
+                img_type=img_type,
+            )
         except ValueError as e:
             await interaction.followup.send(
                 f"Invalid player identifier: {e}",
@@ -53,6 +62,7 @@ class MinecraftSkinCog(commands.Cog):
         filename = f"{player}_{img_type}.png"
         file_obj = discord.File(BytesIO(image_data), filename=filename)
         await interaction.followup.send(file=file_obj)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MinecraftSkinCog(bot))
