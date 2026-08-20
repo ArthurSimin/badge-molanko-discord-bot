@@ -20,6 +20,14 @@ PUBLIC_IP_FILE = CONFIG_DIR / "public_ip.env"
 
 ALLOWED_SCHEMES = {"http", "https"}
 
+# RFC 2544 reserves 198.18.0.0/15 for network benchmarking. Proxy clients
+# commonly use this range as synthetic/fake DNS addresses. These addresses
+# are not routable destinations themselves; the configured proxy resolves
+# the original hostname when the browser connects.
+PROXY_SYNTHETIC_NETWORKS = (
+    ipaddress.ip_network("198.18.0.0/15"),
+)
+
 
 def normalize_url(url: str) -> str:
     cleaned = url.strip()
@@ -43,32 +51,27 @@ def _pattern_matches(value: str, pattern: str) -> bool:
         return False
     value_lower = value.lower()
     pattern_lower = pattern.lower()
-    if '*' in pattern:
+    if "*" in pattern:
         return fnmatch(value_lower, pattern_lower)
-    return (
-        value_lower == pattern_lower
-        or value_lower.endswith("." + pattern_lower)
-    )
+    return value_lower == pattern_lower or value_lower.endswith("." + pattern_lower)
+
+
+def _load_lines(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    return sorted({
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    })
 
 
 def load_allowed_domains() -> list[str]:
-    if not WHITELIST_PATH.exists():
-        return []
-    return sorted({
-        line.strip()
-        for line in WHITELIST_PATH.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    })
+    return _load_lines(WHITELIST_PATH)
 
 
 def load_blocked_domains() -> list[str]:
-    if not BLACKLIST_PATH.exists():
-        return []
-    return sorted({
-        line.strip()
-        for line in BLACKLIST_PATH.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    })
+    return _load_lines(BLACKLIST_PATH)
 
 
 def is_domain_allowed(url: str) -> bool:
@@ -76,28 +79,37 @@ def is_domain_allowed(url: str) -> bool:
         normalized = normalize_url(url)
     except Exception:
         return False
-    parsed = urlparse(normalized)
-    hostname = (parsed.hostname or "").lower()
-    scheme = (parsed.scheme or "").lower()
+    hostname = (urlparse(normalized).hostname or "").lower()
 
     for pattern in load_blocked_domains():
         if _pattern_matches(normalized, pattern) or _pattern_matches(hostname, pattern):
             return False
 
-    for pattern in load_allowed_domains():
-        if _pattern_matches(normalized, pattern) or _pattern_matches(hostname, pattern):
-            return True
-    return False
+    return any(
+        _pattern_matches(normalized, pattern) or _pattern_matches(hostname, pattern)
+        for pattern in load_allowed_domains()
+    )
+
+
+def is_proxy_synthetic_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return any(ip in network for network in PROXY_SYNTHETIC_NETWORKS)
 
 
 def is_private_ip(ip_str: str) -> bool:
     try:
         ip = ipaddress.ip_address(ip_str)
-        # Reject all non-public addresses, including loopback/link-local/reserved
-        # and IPv6 private/ULA addresses, not only RFC1918 IPv4 ranges.
         return not ip.is_global
     except ValueError:
         return True
+
+
+def is_blocked_destination_ip(ip_str: str) -> bool:
+    """Return True when the resolved address must be blocked by SSRF checks."""
+    return is_private_ip(ip_str) and not is_proxy_synthetic_ip(ip_str)
 
 
 def resolve_ip(hostname: str) -> str:
@@ -110,17 +122,15 @@ def resolve_ip(hostname: str) -> str:
         )
         if not addrinfo:
             raise ValueError(f"Could not resolve hostname: {hostname}")
-        # Prefer IPv4, preserving existing behavior when both families exist.
         for info in addrinfo:
             if info[0] == socket.AF_INET:
                 return info[4][0]
         return addrinfo[0][4][0]
-    except socket.gaierror as e:
-        raise ValueError(f"DNS resolution failed for {hostname}: {e}") from e
+    except socket.gaierror as exc:
+        raise ValueError(f"DNS resolution failed for {hostname}: {exc}") from exc
 
 
 async def resolve_ip_async(hostname: str) -> str:
-    """Resolve DNS without blocking Discord.py's event loop."""
     return await asyncio.to_thread(resolve_ip, hostname)
 
 
@@ -141,73 +151,46 @@ def get_public_ip() -> str:
 
 
 async def get_public_ip_async() -> str:
-    """Fetch public IP without blocking Discord.py's event loop."""
     return await asyncio.to_thread(get_public_ip)
 
 
 def load_cookie_allowed_domains() -> list[str]:
-    if not COOKIE_WHITELIST_PATH.exists():
-        return []
-    return sorted({
-        line.strip()
-        for line in COOKIE_WHITELIST_PATH.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    })
+    return _load_lines(COOKIE_WHITELIST_PATH)
 
 
 def is_cookie_allowed(url: str) -> bool:
     try:
-        normalized = normalize_url(url)
-        hostname = (urlparse(normalized).hostname or "").lower()
-        if not hostname:
-            return False
-        return any(_pattern_matches(hostname, pattern) for pattern in load_cookie_allowed_domains())
+        hostname = (urlparse(normalize_url(url)).hostname or "").lower()
+        return bool(hostname) and any(_pattern_matches(hostname, p) for p in load_cookie_allowed_domains())
     except Exception:
         return False
 
 
 def load_fullpage_allowed_domains() -> list[str]:
-    if not FULLPAGE_WHITELIST_PATH.exists():
-        return []
-    return sorted({
-        line.strip()
-        for line in FULLPAGE_WHITELIST_PATH.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    })
+    return _load_lines(FULLPAGE_WHITELIST_PATH)
 
 
 def is_fullpage_allowed(url: str) -> bool:
     try:
-        normalized = normalize_url(url)
-        hostname = (urlparse(normalized).hostname or "").lower()
-        if not hostname:
-            return False
-        return any(_pattern_matches(hostname, pattern) for pattern in load_fullpage_allowed_domains())
+        hostname = (urlparse(normalize_url(url)).hostname or "").lower()
+        return bool(hostname) and any(_pattern_matches(hostname, p) for p in load_fullpage_allowed_domains())
     except Exception:
         return False
 
 
 def mask_ip_in_text(text: str, ip_address: str) -> str:
-    if not ip_address or ip_address not in text:
-        return text
-    return text.replace(ip_address, "**.**.**.**")
+    return text.replace(ip_address, "**.**.**.**") if ip_address and ip_address in text else text
 
 
 BLOCK_MEDIA_PATH = CONFIG_DIR / "screenshot_web_block_media.txt"
 
 
 def load_block_media_patterns() -> list[str]:
-    if not BLOCK_MEDIA_PATH.exists():
-        return []
-    return sorted({
-        line.strip()
-        for line in BLOCK_MEDIA_PATH.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    })
+    return _load_lines(BLOCK_MEDIA_PATH)
 
 
 def should_block_media(url: str) -> bool:
     if not url:
         return False
-    url_lower = url.lower()
-    return any(fnmatch(url_lower, pattern.lower()) for pattern in load_block_media_patterns())
+    value = url.lower()
+    return any(fnmatch(value, pattern.lower()) for pattern in load_block_media_patterns())
