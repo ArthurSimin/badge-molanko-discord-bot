@@ -105,15 +105,14 @@ class MyBot(commands.Bot):
         self._terminal_task = None
 
         if terminal_task and not terminal_task.done():
-            if terminal_task is asyncio.current_task():
-                # close() can be called by the terminal command itself.
-                terminal_task.cancel()
-            else:
+            if terminal_task is not asyncio.current_task():
                 terminal_task.cancel()
                 try:
                     await terminal_task
                 except asyncio.CancelledError:
                     pass
+            else:
+                terminal_task.cancel()
 
         await super().close()
 
@@ -138,20 +137,15 @@ class MyBot(commands.Bot):
             f"with command '{ctx.command.qualified_name}'"
         )
 
-    async def on_interaction(self, interaction: discord.Interaction) -> None:
-        if interaction.type != discord.InteractionType.application_command:
-            return
-
-        data = interaction.data
-        labels = {
-            1: "Slash command",
-            2: "User context menu command",
-            3: "Message context menu command",
-        }
-        command_label = labels.get(data.get("type"), "Unknown application command")
+    async def on_app_command_completion(
+        self,
+        interaction: discord.Interaction,
+        command: app_commands.Command,
+    ) -> None:
+        """Log successful application command execution without overriding dispatch."""
         log_message(
-            f"{command_label} invoked by {interaction.user} "
-            f"(ID: {interaction.user.id}) with command '{data.get('name')}'"
+            f"Application command '{command.qualified_name}' invoked by "
+            f"{interaction.user} (ID: {interaction.user.id})"
         )
 
     async def on_error(self, event: str, *args, **kwargs) -> None:
