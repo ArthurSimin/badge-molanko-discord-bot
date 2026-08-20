@@ -10,7 +10,7 @@ from lanlan3292_python_screenshot_web.firefox import capture_screenshot_bytes, n
 from utils.screenshot_security import (
     is_domain_allowed,
     resolve_ip_async,
-    is_private_ip,
+    is_blocked_destination_ip,
     is_cookie_allowed,
     is_fullpage_allowed,
     should_block_media,
@@ -80,7 +80,7 @@ class Screenshot(commands.Cog):
                 return
 
             ip = await resolve_ip_async(hostname)
-            if is_private_ip(ip):
+            if is_blocked_destination_ip(ip):
                 await interaction.followup.send(
                     f"Access to private IP addresses is not allowed (resolved {hostname} -> {ip})",
                     ephemeral=True,
@@ -131,7 +131,7 @@ class Screenshot(commands.Cog):
             final_hostname = parsed_final.hostname
             if final_hostname:
                 final_ip = await resolve_ip_async(final_hostname)
-                if is_private_ip(final_ip):
+                if is_blocked_destination_ip(final_ip):
                     await interaction.followup.send(
                         f"Redirected URL resolved to private IP address: {final_hostname} -> {final_ip}",
                         ephemeral=True,
