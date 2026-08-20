@@ -1,9 +1,9 @@
 import asyncio
-import datetime
 import logging
 import os
 import sys
 import traceback
+from time import perf_counter
 
 import discord
 from discord import app_commands
@@ -13,7 +13,12 @@ from dotenv import load_dotenv
 from terminal_commands import TerminalCommandHandler
 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("molanko.bot")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_FILE = os.path.join(BASE_DIR, "discord_bot.env")
@@ -28,19 +33,34 @@ if not TOKEN:
 intents = discord.Intents.default()
 
 
-def log_message(msg: str) -> None:
-    """Print a timestamped log message to the console."""
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}] {msg}")
+class LoggingCommandTree(app_commands.CommandTree):
+    """Log application-command starts without overriding Discord interaction dispatch."""
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        command = interaction.command
+        if command is not None:
+            interaction.client._app_command_started[interaction.id] = perf_counter()
+            logger.info(
+                "APP_COMMAND_START name=%s user=%s id=%s",
+                command.qualified_name,
+                interaction.user,
+                interaction.user.id,
+            )
+        return True
 
 
 class MyBot(commands.Bot):
     def __init__(self) -> None:
-        super().__init__(command_prefix="!", intents=intents)
+        super().__init__(
+            command_prefix="!",
+            intents=intents,
+            tree_cls=LoggingCommandTree,
+        )
         self.cogs_dir = COGS_DIR
         self.utils_dir = UTILS_DIR
         self.cmd_handler = TerminalCommandHandler(self)
         self._terminal_task: asyncio.Task | None = None
+        self._app_command_started: dict[int, float] = {}
 
     async def setup_hook(self) -> None:
         """Load extensions and start background tasks once per Bot instance."""
@@ -48,21 +68,19 @@ class MyBot(commands.Bot):
 
         try:
             synced = await self.tree.sync()
-            print(f"Synced {len(synced)} slash command(s)")
+            logger.info("Synced %d slash command(s)", len(synced))
         except Exception:
-            logging.exception("Slash command sync failed")
+            logger.exception("Slash command sync failed")
 
-        # setup_hook runs once per Bot instance. on_ready may run repeatedly
-        # when Discord reconnects, so background tasks should not start there.
         self._terminal_task = asyncio.create_task(
             self.terminal_loop(),
             name="terminal-loop",
         )
 
     async def _load_cogs(self) -> None:
-        print("Loading cogs...")
+        logger.info("Loading cogs")
         if not os.path.isdir(self.cogs_dir):
-            print("cogs folder not found")
+            logger.warning("Cogs directory not found: %s", self.cogs_dir)
             return
 
         for filename in sorted(os.listdir(self.cogs_dir)):
@@ -72,9 +90,9 @@ class MyBot(commands.Bot):
             extension = f"cogs.{filename[:-3]}"
             try:
                 await self.load_extension(extension)
-                print(f"Loaded {extension}")
+                logger.info("Loaded extension=%s", extension)
             except Exception:
-                logging.exception("Failed loading %s", extension)
+                logger.exception("Failed loading extension=%s", extension)
 
     async def terminal_loop(self) -> None:
         """Read terminal commands without blocking Discord's event loop."""
@@ -82,7 +100,7 @@ class MyBot(commands.Bot):
             try:
                 line = await asyncio.to_thread(sys.stdin.readline)
                 if not line:
-                    print("EOF detected, stopping terminal loop")
+                    logger.info("Terminal input reached EOF; stopping terminal loop")
                     return
 
                 line = line.strip()
@@ -92,12 +110,13 @@ class MyBot(commands.Bot):
                 parts = line.split(maxsplit=1)
                 command = parts[0].lower()
                 argument = parts[1] if len(parts) > 1 else None
+                logger.info("TERMINAL_COMMAND name=%s", command)
                 await self.cmd_handler.dispatch(command, argument)
 
             except asyncio.CancelledError:
                 return
             except Exception:
-                logging.exception("Error in terminal loop")
+                logger.exception("Terminal command loop failed")
 
     async def close(self) -> None:
         """Cancel the terminal task before closing the Discord client."""
@@ -117,10 +136,12 @@ class MyBot(commands.Bot):
         await super().close()
 
     async def on_ready(self) -> None:
-        print("========================")
-        print(f"Logged in as: {self.user}")
-        print(f"ID: {self.user.id}")
-        print(f"Servers: {len(self.guilds)}")
+        logger.info(
+            "Bot ready user=%s id=%s guilds=%d",
+            self.user,
+            self.user.id if self.user else "unknown",
+            len(self.guilds),
+        )
 
         activity = discord.Activity(
             type=discord.ActivityType.watching,
@@ -128,41 +149,71 @@ class MyBot(commands.Bot):
         )
         await self.change_presence(status=discord.Status.online, activity=activity)
 
-        print("Bot is ONLINE!")
-        print("========================")
-
     async def on_command(self, ctx: commands.Context) -> None:
-        log_message(
-            f"Command invoked by {ctx.author} (ID: {ctx.author.id}) "
-            f"with command '{ctx.command.qualified_name}'"
-        )
+        if ctx.command is not None:
+            logger.info(
+                "PREFIX_COMMAND name=%s user=%s id=%s",
+                ctx.command.qualified_name,
+                ctx.author,
+                ctx.author.id,
+            )
 
     async def on_app_command_completion(
         self,
         interaction: discord.Interaction,
         command: app_commands.Command,
     ) -> None:
-        """Log successful application command execution without overriding dispatch."""
-        log_message(
-            f"Application command '{command.qualified_name}' invoked by "
-            f"{interaction.user} (ID: {interaction.user.id})"
-        )
+        started = self._app_command_started.pop(interaction.id, None)
+        elapsed = perf_counter() - started if started is not None else None
+
+        if elapsed is None:
+            logger.info(
+                "APP_COMMAND_DONE name=%s user=%s id=%s",
+                command.qualified_name,
+                interaction.user,
+                interaction.user.id,
+            )
+        else:
+            logger.info(
+                "APP_COMMAND_DONE name=%s user=%s id=%s elapsed=%.3fs",
+                command.qualified_name,
+                interaction.user,
+                interaction.user.id,
+                elapsed,
+            )
 
     async def on_error(self, event: str, *args, **kwargs) -> None:
-        print(f"Unhandled error in {event}:")
-        traceback.print_exc()
+        logger.exception("Unhandled event error event=%s", event)
 
     async def on_app_command_error(
         self,
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        command_name = getattr(interaction.command, "name", "unknown")
-        log_message(
-            f"ERROR in command '{command_name}' invoked by "
-            f"{interaction.user}: {error}"
-        )
-        traceback.print_exception(type(error), error, error.__traceback__)
+        command_name = getattr(interaction.command, "qualified_name", "unknown")
+        started = self._app_command_started.pop(interaction.id, None)
+        elapsed = perf_counter() - started if started is not None else None
+
+        if elapsed is None:
+            logger.error(
+                "APP_COMMAND_FAILED name=%s user=%s id=%s error=%s: %s",
+                command_name,
+                interaction.user,
+                interaction.user.id,
+                type(error).__name__,
+                error,
+            )
+        else:
+            logger.error(
+                "APP_COMMAND_FAILED name=%s user=%s id=%s elapsed=%.3fs error=%s: %s",
+                command_name,
+                interaction.user,
+                interaction.user.id,
+                elapsed,
+                type(error).__name__,
+                error,
+            )
+        logger.debug("Application command traceback", exc_info=error)
 
         if not interaction.response.is_done():
             try:
@@ -172,7 +223,7 @@ class MyBot(commands.Bot):
                     ephemeral=True,
                 )
             except Exception:
-                logging.exception("Failed to send application command error")
+                logger.exception("Failed to send application command error response")
 
 
 async def main() -> None:
@@ -186,20 +237,20 @@ async def main() -> None:
                 await bot.start(TOKEN)
             return
         except discord.LoginFailure:
-            print("Invalid TOKEN, please check discord_bot.env")
+            logger.error("Invalid TOKEN; please check discord_bot.env")
             return
         except Exception:
-            logging.exception(
-                "Connection attempt %s/%s failed",
+            logger.exception(
+                "Connection attempt %d/%d failed",
                 attempt,
                 max_retries,
             )
 
             if attempt == max_retries:
-                print("Max retries reached. Exiting.")
+                logger.error("Maximum connection retries reached; exiting")
                 return
 
-            print(f"Retrying in {retry_delay} seconds...")
+            logger.info("Retrying connection in %d seconds", retry_delay)
             await asyncio.sleep(retry_delay)
             retry_delay *= 2
 
@@ -208,4 +259,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nShutdown by user")
+        logger.info("Shutdown requested by user")
