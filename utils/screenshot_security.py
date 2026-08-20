@@ -1,6 +1,7 @@
 # screenshot_security.py
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import socket
 from fnmatch import fnmatch
@@ -11,18 +12,15 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config"
 
-# 白/黑名单文件
 WHITELIST_PATH = CONFIG_DIR / "screenshot_web_whitelist.txt"
 BLACKLIST_PATH = CONFIG_DIR / "screenshot_web_blacklist.txt"
 COOKIE_WHITELIST_PATH = CONFIG_DIR / "screenshot_web_whitelist_cookie.txt"
-FULLPAGE_WHITELIST_PATH = CONFIG_DIR / "screenshot_web_fullpage_whitelist.txt"   # 新增
-
+FULLPAGE_WHITELIST_PATH = CONFIG_DIR / "screenshot_web_fullpage_whitelist.txt"
 PUBLIC_IP_FILE = CONFIG_DIR / "public_ip.env"
 
 ALLOWED_SCHEMES = {"http", "https"}
 
 
-# ---------- 辅助：标准化 URL ----------
 def normalize_url(url: str) -> str:
     cleaned = url.strip()
     if not cleaned:
@@ -40,7 +38,6 @@ def normalize_url(url: str) -> str:
     return parsed.geturl()
 
 
-# ---------- 模式匹配（支持通配符 *） ----------
 def _pattern_matches(value: str, pattern: str) -> bool:
     if not pattern:
         return False
@@ -48,39 +45,33 @@ def _pattern_matches(value: str, pattern: str) -> bool:
     pattern_lower = pattern.lower()
     if '*' in pattern:
         return fnmatch(value_lower, pattern_lower)
-    else:
-        if value_lower == pattern_lower:
-            return True
-        if value_lower.endswith("." + pattern_lower):
-            return True
-        return False
+    return (
+        value_lower == pattern_lower
+        or value_lower.endswith("." + pattern_lower)
+    )
 
 
-# ---------- 白名单 / 黑名单 ----------
 def load_allowed_domains() -> list[str]:
     if not WHITELIST_PATH.exists():
         return []
-    domains = []
-    for line in WHITELIST_PATH.read_text(encoding="utf-8").splitlines():
-        cleaned = line.strip()
-        if cleaned and not cleaned.startswith("#"):
-            domains.append(cleaned)
-    return sorted(set(domains))
+    return sorted({
+        line.strip()
+        for line in WHITELIST_PATH.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    })
 
 
 def load_blocked_domains() -> list[str]:
     if not BLACKLIST_PATH.exists():
         return []
-    domains = []
-    for line in BLACKLIST_PATH.read_text(encoding="utf-8").splitlines():
-        cleaned = line.strip()
-        if cleaned and not cleaned.startswith("#"):
-            domains.append(cleaned)
-    return sorted(set(domains))
+    return sorted({
+        line.strip()
+        for line in BLACKLIST_PATH.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    })
 
 
 def is_domain_allowed(url: str) -> bool:
-    """检查 URL 是否通过白名单/黑名单过滤（黑名单优先）"""
     try:
         normalized = normalize_url(url)
     except Exception:
@@ -89,55 +80,50 @@ def is_domain_allowed(url: str) -> bool:
     hostname = (parsed.hostname or "").lower()
     scheme = (parsed.scheme or "").lower()
 
-    # 黑名单
     for pattern in load_blocked_domains():
-        if _pattern_matches(normalized, pattern):
-            return False
-        if hostname and _pattern_matches(hostname, pattern):
-            return False
-        if scheme and _pattern_matches(scheme, pattern):
+        if _pattern_matches(normalized, pattern) or _pattern_matches(hostname, pattern):
             return False
 
-    # 白名单（若为空则默认拒绝）
     for pattern in load_allowed_domains():
-        if _pattern_matches(normalized, pattern):
-            return True
-        if hostname and _pattern_matches(hostname, pattern):
-            return True
-        if scheme and _pattern_matches(scheme, pattern):
+        if _pattern_matches(normalized, pattern) or _pattern_matches(hostname, pattern):
             return True
     return False
 
 
-# ---------- 私有 IP 检测 ----------
 def is_private_ip(ip_str: str) -> bool:
-    """检查 IPv4 是否为 RFC1918 私有地址"""
     try:
         ip = ipaddress.ip_address(ip_str)
-        if ip.version == 4:
-            return (ip in ipaddress.ip_network('10.0.0.0/8') or
-                    ip in ipaddress.ip_network('172.16.0.0/12') or
-                    ip in ipaddress.ip_network('192.168.0.0/16'))
-        return False
+        # Reject all non-public addresses, including loopback/link-local/reserved
+        # and IPv6 private/ULA addresses, not only RFC1918 IPv4 ranges.
+        return not ip.is_global
     except ValueError:
-        return True   # 无效 IP 视为不安全
+        return True
 
 
 def resolve_ip(hostname: str) -> str:
-    """解析主机名，优先返回 IPv4"""
     try:
-        addrinfo = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        addrinfo = socket.getaddrinfo(
+            hostname,
+            None,
+            socket.AF_UNSPEC,
+            socket.SOCK_STREAM,
+        )
         if not addrinfo:
             raise ValueError(f"Could not resolve hostname: {hostname}")
+        # Prefer IPv4, preserving existing behavior when both families exist.
         for info in addrinfo:
             if info[0] == socket.AF_INET:
                 return info[4][0]
         return addrinfo[0][4][0]
     except socket.gaierror as e:
-        raise ValueError(f"DNS resolution failed for {hostname}: {e}")
+        raise ValueError(f"DNS resolution failed for {hostname}: {e}") from e
 
 
-# ---------- 公网 IP（用于掩码） ----------
+async def resolve_ip_async(hostname: str) -> str:
+    """Resolve DNS without blocking Discord.py's event loop."""
+    return await asyncio.to_thread(resolve_ip, hostname)
+
+
 def get_public_ip() -> str:
     try:
         request = Request("https://api.ip.sb/ip", headers={"User-Agent": "curl/8.0"})
@@ -154,91 +140,74 @@ def get_public_ip() -> str:
         raise
 
 
-# ---------- Cookie 白名单 ----------
+async def get_public_ip_async() -> str:
+    """Fetch public IP without blocking Discord.py's event loop."""
+    return await asyncio.to_thread(get_public_ip)
+
+
 def load_cookie_allowed_domains() -> list[str]:
     if not COOKIE_WHITELIST_PATH.exists():
         return []
-    domains = []
-    for line in COOKIE_WHITELIST_PATH.read_text(encoding="utf-8").splitlines():
-        cleaned = line.strip()
-        if cleaned and not cleaned.startswith("#"):
-            domains.append(cleaned)
-    return sorted(set(domains))
+    return sorted({
+        line.strip()
+        for line in COOKIE_WHITELIST_PATH.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    })
 
 
 def is_cookie_allowed(url: str) -> bool:
-    """判断是否允许为指定 URL 注入 Cookie（基于 hostname 匹配）"""
     try:
         normalized = normalize_url(url)
-        parsed = urlparse(normalized)
-        hostname = (parsed.hostname or "").lower()
+        hostname = (urlparse(normalized).hostname or "").lower()
         if not hostname:
             return False
-        for pattern in load_cookie_allowed_domains():
-            if _pattern_matches(hostname, pattern):
-                return True
-        return False
+        return any(_pattern_matches(hostname, pattern) for pattern in load_cookie_allowed_domains())
     except Exception:
         return False
 
 
-# ---------- 全页截图白名单 ----------
 def load_fullpage_allowed_domains() -> list[str]:
     if not FULLPAGE_WHITELIST_PATH.exists():
         return []
-    domains = []
-    for line in FULLPAGE_WHITELIST_PATH.read_text(encoding="utf-8").splitlines():
-        cleaned = line.strip()
-        if cleaned and not cleaned.startswith("#"):
-            domains.append(cleaned)
-    return sorted(set(domains))
+    return sorted({
+        line.strip()
+        for line in FULLPAGE_WHITELIST_PATH.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    })
 
 
 def is_fullpage_allowed(url: str) -> bool:
-    """判断是否允许对指定 URL 进行全页截图（基于 hostname 匹配）"""
     try:
         normalized = normalize_url(url)
-        parsed = urlparse(normalized)
-        hostname = (parsed.hostname or "").lower()
+        hostname = (urlparse(normalized).hostname or "").lower()
         if not hostname:
             return False
-        for pattern in load_fullpage_allowed_domains():
-            if _pattern_matches(hostname, pattern):
-                return True
-        return False
+        return any(_pattern_matches(hostname, pattern) for pattern in load_fullpage_allowed_domains())
     except Exception:
         return False
 
 
-# ---------- 文本掩码工具（可选） ----------
 def mask_ip_in_text(text: str, ip_address: str) -> str:
     if not ip_address or ip_address not in text:
         return text
     return text.replace(ip_address, "**.**.**.**")
 
-# ---------- 阻止媒体加载名单 ----------
+
 BLOCK_MEDIA_PATH = CONFIG_DIR / "screenshot_web_block_media.txt"
 
+
 def load_block_media_patterns() -> list[str]:
-    """加载需要阻止媒体加载的域名/URL 模式列表"""
     if not BLOCK_MEDIA_PATH.exists():
         return []
-    patterns = []
-    for line in BLOCK_MEDIA_PATH.read_text(encoding="utf-8").splitlines():
-        cleaned = line.strip()
-        if cleaned and not cleaned.startswith("#"):
-            patterns.append(cleaned)
-    return sorted(set(patterns))
+    return sorted({
+        line.strip()
+        for line in BLOCK_MEDIA_PATH.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    })
+
 
 def should_block_media(url: str) -> bool:
-    """根据已加载的名单判断是否应该阻止该媒体请求"""
     if not url:
         return False
     url_lower = url.lower()
-    for pattern in load_block_media_patterns():
-        # 支持通配符匹配
-        if fnmatch(url_lower, pattern.lower()):
-            return True
-        # 若模式不含协议，则尝试匹配主机名（可自行扩展）
-        # 这里简化：直接对完整 URL 做通配符匹配
-    return False
+    return any(fnmatch(url_lower, pattern.lower()) for pattern in load_block_media_patterns())
