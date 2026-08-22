@@ -8,7 +8,11 @@ from typing import Optional
 import aiohttp
 import discord
 from discord import app_commands
+from discord.app_commands import locale_str
 from discord.ext import commands
+
+from utils.i18n import t
+
 
 # 自定义异常
 class AvatarProcessingError(Exception):
@@ -86,25 +90,64 @@ class MinecraftAvatarCog(commands.Cog):
 
     @app_commands.command(
         name="mcavatar",
-        description="Generate a pixel-style Minecraft avatar with optional effects"
+        description=locale_str(
+            "Generate a pixel-style Minecraft avatar with optional effects",
+            i18n_key="mcavatar.command_description",
+        ),
     )
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     @app_commands.describe(
-        player="Minecraft username to use (optional if image is provided)",
-        image="Skin image attachment (optional if player is provided)",
-        scale="Final upscale factor (default 10)",
-        outline="Outline pixel width: 0=off, 1=1px, 2=2px",
-        outline_color="Outline color: auto / auto_darker / auto_lighter or hex (#000000)",
-        bg_color="Background color: auto / auto_lighter / auto_darker or hex (#ffffff)",
-        fill_background="Whether to fill the background",
-        upscale48="Upscale to 48x48 scaling",
-        average_color="Override the average color used for auto outline/bg. Hex color code (e.g. #ff0000) or 'auto' for automatic."
+        player=locale_str(
+            "Minecraft username to use (optional if image is provided)",
+            i18n_key="mcavatar.param.player",
+        ),
+        image=locale_str(
+            "Skin image attachment (optional if player is provided)",
+            i18n_key="mcavatar.param.image",
+        ),
+        scale=locale_str(
+            "Final upscale factor (default 10)",
+            i18n_key="mcavatar.param.scale",
+        ),
+        outline=locale_str(
+            "Outline pixel width: 0=off, 1=1px, 2=2px",
+            i18n_key="mcavatar.param.outline",
+        ),
+        outline_color=locale_str(
+            "Outline color: auto / auto_darker / auto_lighter or hex (#000000)",
+            i18n_key="mcavatar.param.outline_color",
+        ),
+        bg_color=locale_str(
+            "Background color: auto / auto_lighter / auto_darker or hex (#ffffff)",
+            i18n_key="mcavatar.param.bg_color",
+        ),
+        fill_background=locale_str(
+            "Whether to fill the background",
+            i18n_key="mcavatar.param.fill_background",
+        ),
+        upscale48=locale_str(
+            "Upscale to 48x48 scaling",
+            i18n_key="mcavatar.param.upscale48",
+        ),
+        average_color=locale_str(
+            "Override the average color used for auto outline/bg. Hex color code (e.g. #ff0000) or 'auto' for automatic.",
+            i18n_key="mcavatar.param.average_color",
+        ),
     )
     @app_commands.choices(
         outline=[
-            app_commands.Choice(name="Off", value=0),
-            app_commands.Choice(name="1px", value=1),
-            app_commands.Choice(name="2px", value=2),
+            app_commands.Choice(
+                name=locale_str("Off", i18n_key="mcavatar.choice.outline_off"),
+                value=0,
+            ),
+            app_commands.Choice(
+                name=locale_str("1px", i18n_key="mcavatar.choice.outline_1px"),
+                value=1,
+            ),
+            app_commands.Choice(
+                name=locale_str("2px", i18n_key="mcavatar.choice.outline_2px"),
+                value=2,
+            ),
         ]
     )
     async def mcavatar(
@@ -121,24 +164,31 @@ class MinecraftAvatarCog(commands.Cog):
         average_color: Optional[str] = None,
     ):
         await interaction.response.defer(thinking=True)
+        locale = str(interaction.locale) if interaction.locale else None
 
         if not player and not image:
             await interaction.followup.send(
-                "You must provide either a player name or an image attachment.",
-                ephemeral=True
+                t("mcavatar.error.need_player_or_image", locale=locale),
+                ephemeral=True,
             )
             return
 
         try:
             if image:
                 if not image.content_type or not image.content_type.startswith("image/"):
-                    await interaction.followup.send("Invalid image attachment.", ephemeral=True)
+                    await interaction.followup.send(
+                        t("mcavatar.error.invalid_image", locale=locale),
+                        ephemeral=True,
+                    )
                     return
                 image_data = await image.read()
             else:
                 image_data = await fetch_skin_from_username(player)
         except Exception as e:
-            await interaction.followup.send(f"Failed to get skin image: {e}", ephemeral=True)
+            await interaction.followup.send(
+                t("mcavatar.error.fetch_skin", locale=locale, error=e),
+                ephemeral=True,
+            )
             return
 
         options = {
@@ -166,31 +216,41 @@ class MinecraftAvatarCog(commands.Cog):
                     options["averageColor"] = {"r": r, "g": g, "b": b}
                 except Exception:
                     await interaction.followup.send(
-                        "Invalid average_color format. Use hex like #ff0000 or #f00.",
-                        ephemeral=True
+                        t("mcavatar.error.invalid_average_color", locale=locale),
+                        ephemeral=True,
                     )
                     return
 
         try:
             result_data = await process_skin_nodejs(image_data, options)
         except AvatarProcessingError as e:
-            await interaction.followup.send(f"Processing failed: {e}", ephemeral=True)
+            await interaction.followup.send(
+                t("mcavatar.error.processing", locale=locale, error=e),
+                ephemeral=True,
+            )
             return
         except FileNotFoundError:
             await interaction.followup.send(
-                "Internal error: Node.js script not found. Please contact admin.",
-                ephemeral=True
+                t("mcavatar.error.script_not_found", locale=locale),
+                ephemeral=True,
             )
             return
         except Exception as e:
-            await interaction.followup.send(f"Unexpected error: {e}", ephemeral=True)
+            await interaction.followup.send(
+                t("mcavatar.error.unexpected", locale=locale, error=e),
+                ephemeral=True,
+            )
             return
 
         file = discord.File(BytesIO(result_data), filename="avatar.png")
-        player_display = player or "attachment"
+        player_display = player or t("mcavatar.attachment_label", locale=locale)
         await interaction.followup.send(
-            content=f"✅ Avatar generated for **{player_display}**",
-            file=file
+            content=t(
+                "mcavatar.success",
+                locale=locale,
+                player=player_display,
+            ),
+            file=file,
         )
 
 
