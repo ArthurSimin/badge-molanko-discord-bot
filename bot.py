@@ -11,6 +11,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 from terminal_commands import TerminalCommandHandler
+from utils.i18n import MolankoTranslator
 
 
 logging.basicConfig(
@@ -64,6 +65,10 @@ class MyBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         """Load extensions and start background tasks once per Bot instance."""
+        # Translator must be set before sync so command localizations are applied
+        await self.tree.set_translator(MolankoTranslator())
+        logger.info("Command translator set")
+
         await self._load_cogs()
 
         try:
