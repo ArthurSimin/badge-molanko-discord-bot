@@ -1,0 +1,6 @@
+{
+  "version": {
+    "command_description": "显示机器人版本",
+    "response": "当前版本: **{version}**"
+  }
+}
