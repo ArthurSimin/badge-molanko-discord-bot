@@ -5,8 +5,11 @@ import socket
 import discord
 import psutil
 from discord import app_commands
+from discord.app_commands import locale_str
 from discord.ext import commands
 from datetime import datetime, timezone
+
+from utils.i18n import t
 
 try:
     import cpuinfo
@@ -21,16 +24,19 @@ class ServerInfo(commands.Cog):
 
     @app_commands.command(
         name="server_info",
-        description="Display server system information including CPU, memory usage and Discord API latency"
+        description=locale_str(
+            "Display server system information including CPU, memory usage and Discord API latency",
+            i18n_key="server_info.command_description",
+        ),
     )
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def server_info(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
+        locale = str(interaction.locale) if interaction.locale else None
 
         try:
             os_name = platform.system()
             os_release = platform.release()
-            hostname = socket.gethostname()
 
             if CPUINFO_AVAILABLE:
                 info = await asyncio.to_thread(cpuinfo.get_cpu_info)
@@ -54,28 +60,42 @@ class ServerInfo(commands.Cog):
             days = uptime_delta.days
             hours, remainder = divmod(uptime_delta.seconds, 3600)
             minutes, _ = divmod(remainder, 60)
-            uptime_str = f"{days}d {hours}h {minutes}m"
+            uptime_str = t(
+                "server_info.uptime_format",
+                locale=locale,
+                days=days,
+                hours=hours,
+                minutes=minutes,
+            )
 
             latency_ms = round(self.bot.latency * 1000)
 
-            response = (
-                "**Server Information**\n"
-                f"OS: {os_name} {os_release}\n"
-                f"Uptime: {uptime_str}\n"
-                f"CPU: {cpu_percent}% - {cpu_name}\n"
-                f"Architecture: {arch}, {cpu_count} cores\n"
-                f"Memory: {mem_used:.2f} GB / {mem_total:.2f} GB ({mem_percent}%)\n"
-                f"Discord API Latency: {latency_ms} ms"
+            response = t(
+                "server_info.response",
+                locale=locale,
+                os_name=os_name,
+                os_release=os_release,
+                uptime=uptime_str,
+                cpu_percent=cpu_percent,
+                cpu_name=cpu_name,
+                arch=arch,
+                cpu_count=cpu_count,
+                mem_used=f"{mem_used:.2f}",
+                mem_total=f"{mem_total:.2f}",
+                mem_percent=mem_percent,
+                latency_ms=latency_ms,
             )
 
             await interaction.followup.send(response)
 
         except ImportError:
             await interaction.followup.send(
-                "The `psutil` library is not installed. Please install it to use this command."
+                t("server_info.error_psutil", locale=locale)
             )
         except Exception as exc:
-            await interaction.followup.send(f"An error occurred: {exc}")
+            await interaction.followup.send(
+                t("server_info.error_generic", locale=locale, error=exc)
+            )
 
 
 async def setup(bot: commands.Bot):
