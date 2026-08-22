@@ -1,5 +1,12 @@
 """Simple i18n helper: load JSON locale files and resolve strings by Discord locale.
 
+Locale files use Minecraft-style flat dotted keys, e.g.::
+
+    {
+        "version.command_description": "Show the bot version",
+        "version.response": "Current version: **{version}**"
+    }
+
 Also provides MolankoTranslator for discord.app_commands command name/description
 localization at sync time.
 """
@@ -37,7 +44,6 @@ def _normalize_locale(locale: str | None) -> str:
         return lang
     # Common aliases
     if lang == "zh":
-        # Prefer Simplified Chinese file if present
         if (LOCALES_DIR / "zh-CN.json").is_file():
             return "zh-CN"
         if (LOCALES_DIR / "zh.json").is_file():
@@ -62,13 +68,19 @@ def _load_locale(code: str) -> dict[str, Any]:
 
 
 def _lookup(data: dict[str, Any], key: str) -> str | None:
+    """Resolve a key. Prefer flat dotted keys (Minecraft-style), then nested."""
+    # Flat: "version.response" -> data["version.response"]
+    if key in data and not isinstance(data[key], dict):
+        return str(data[key])
+
+    # Nested fallback: "version.response" -> data["version"]["response"]
     value: Any = data
     for part in key.split("."):
         if isinstance(value, dict) and part in value:
             value = value[part]
         else:
             return None
-    if value is None:
+    if value is None or isinstance(value, dict):
         return None
     return str(value)
 
@@ -77,7 +89,7 @@ def t(key: str, locale: str | None = None, **kwargs: Any) -> str:
     """
     Translate a key for the given locale.
 
-    key format: "cog.section.key" e.g. "version.response"
+    key format: dotted string e.g. "version.response" (Minecraft-style).
     Falls back to DEFAULT_LOCALE, then to the key itself.
     Supports simple str.format(**kwargs).
     """
@@ -146,7 +158,7 @@ class MolankoTranslator(app_commands.Translator):
 
 
 def _find_key_by_value(data: dict[str, Any], target: str, prefix: str = "") -> str | None:
-    """Depth-first search for a leaf string equal to target; return dotted key."""
+    """Find a key whose string value equals target (supports flat and nested)."""
     for k, v in data.items():
         path = f"{prefix}.{k}" if prefix else k
         if isinstance(v, dict):
@@ -154,5 +166,6 @@ def _find_key_by_value(data: dict[str, Any], target: str, prefix: str = "") -> s
             if found:
                 return found
         elif isinstance(v, str) and v == target:
-            return path
+            # For flat keys the dict key is already the full path (e.g. "version.response")
+            return k if not prefix else path
     return None
