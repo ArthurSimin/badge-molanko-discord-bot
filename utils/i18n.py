@@ -1,4 +1,8 @@
-"""Simple i18n helper: load JSON locale files and resolve strings by Discord locale."""
+"""Simple i18n helper: load JSON locale files and resolve strings by Discord locale.
+
+Also provides MolankoTranslator for discord.app_commands command name/description
+localization at sync time.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +10,9 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
+
+import discord
+from discord import app_commands
 
 logger = logging.getLogger("molanko.i18n")
 
@@ -54,6 +61,18 @@ def _load_locale(code: str) -> dict[str, Any]:
     return data
 
 
+def _lookup(data: dict[str, Any], key: str) -> str | None:
+    value: Any = data
+    for part in key.split("."):
+        if isinstance(value, dict) and part in value:
+            value = value[part]
+        else:
+            return None
+    if value is None:
+        return None
+    return str(value)
+
+
 def t(key: str, locale: str | None = None, **kwargs: Any) -> str:
     """
     Translate a key for the given locale.
@@ -63,32 +82,15 @@ def t(key: str, locale: str | None = None, **kwargs: Any) -> str:
     Supports simple str.format(**kwargs).
     """
     code = _normalize_locale(locale)
-    data = _load_locale(code)
-
-    # Nested lookup by dots
-    value: Any = data
-    for part in key.split("."):
-        if isinstance(value, dict) and part in value:
-            value = value[part]
-        else:
-            value = None
-            break
+    value = _lookup(_load_locale(code), key)
 
     if value is None and code != DEFAULT_LOCALE:
-        # Fallback to default locale
-        data = _load_locale(DEFAULT_LOCALE)
-        value = data
-        for part in key.split("."):
-            if isinstance(value, dict) and part in value:
-                value = value[part]
-            else:
-                value = None
-                break
+        value = _lookup(_load_locale(DEFAULT_LOCALE), key)
 
     if value is None:
         return key
 
-    text = str(value)
+    text = value
     if kwargs:
         try:
             text = text.format(**kwargs)
@@ -100,3 +102,57 @@ def t(key: str, locale: str | None = None, **kwargs: Any) -> str:
 def clear_cache() -> None:
     """Clear loaded locale cache (useful after editing locale files)."""
     _cache.clear()
+
+
+class MolankoTranslator(app_commands.Translator):
+    """
+    Translate app_commands locale_str using locales/*.json.
+
+    Prefer extras["i18n_key"] when present (e.g. "version.command_description").
+    Otherwise fall back to matching the English message string against en.json
+    values (less reliable).
+
+    Returns None when no translation is found so Discord keeps the default.
+    """
+
+    async def translate(
+        self,
+        string: app_commands.locale_str,
+        locale: discord.Locale,
+        context: app_commands.TranslationContext,
+    ) -> str | None:
+        code = _normalize_locale(locale.value if locale else None)
+        if code == DEFAULT_LOCALE:
+            # Default is already the English string passed to locale_str
+            return None
+
+        key = string.extras.get("i18n_key") if string.extras else None
+        if key:
+            value = _lookup(_load_locale(code), key)
+            if value is not None:
+                return value
+            return None
+
+        # Fallback: find which key in DEFAULT_LOCALE has this English message
+        message = str(string)
+        en_data = _load_locale(DEFAULT_LOCALE)
+        found_key = _find_key_by_value(en_data, message)
+        if found_key:
+            value = _lookup(_load_locale(code), found_key)
+            if value is not None:
+                return value
+
+        return None
+
+
+def _find_key_by_value(data: dict[str, Any], target: str, prefix: str = "") -> str | None:
+    """Depth-first search for a leaf string equal to target; return dotted key."""
+    for k, v in data.items():
+        path = f"{prefix}.{k}" if prefix else k
+        if isinstance(v, dict):
+            found = _find_key_by_value(v, target, path)
+            if found:
+                return found
+        elif isinstance(v, str) and v == target:
+            return path
+    return None
