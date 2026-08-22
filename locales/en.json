@@ -8,7 +8,7 @@
   "server_info.error_psutil": "The `psutil` library is not installed. Please install it to use this command.",
   "server_info.error_generic": "An error occurred: {error}",
 
-  "mcavatar.command_description": "Generate a pixel-style Minecraft avatar with optional effects",
+  "mcavatar.command_description": "Generate a pixel-style Minecraft avatar",
   "mcavatar.param.player": "Minecraft username to use (optional if image is provided)",
   "mcavatar.param.image": "Skin image attachment (optional if player is provided)",
   "mcavatar.param.scale": "Final upscale factor (default 10)",

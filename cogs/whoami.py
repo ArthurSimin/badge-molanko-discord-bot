@@ -10,8 +10,7 @@ class WhoAmI(commands.Cog):
         user = interaction.user
 
         await interaction.followup.send(
-            f"**Name:** {user.display_name}\n"
-            f"**ID:** `{user.id}`"
+            f"{user.display_name} `{user.id}`"
         )
 
 async def setup(bot: commands.Bot):
