@@ -130,7 +130,7 @@ class MinecraftAvatarCog(commands.Cog):
             i18n_key="mcavatar.param.upscale48",
         ),
         average_color=locale_str(
-            "Override the average color used for auto outline/bg. Hex color code (e.g. #ff0000) or 'auto' for automatic.",
+            "Average color for auto outline/bg: hex (#ff0000) or auto",
             i18n_key="mcavatar.param.average_color",
         ),
     )
