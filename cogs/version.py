@@ -1,5 +1,6 @@
 import discord
 from discord import app_commands
+from discord.app_commands import locale_str
 from discord.ext import commands
 from pathlib import Path
 
@@ -16,7 +17,13 @@ class Version(commands.Cog):
         except Exception:
             self.version = "unknown"
 
-    @app_commands.command(name="version", description="Show the bot version")
+    @app_commands.command(
+        name="version",
+        description=locale_str(
+            "Show the bot version",
+            i18n_key="version.command_description",
+        ),
+    )
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def version(self, interaction: discord.Interaction):
         locale = str(interaction.locale) if interaction.locale else None
