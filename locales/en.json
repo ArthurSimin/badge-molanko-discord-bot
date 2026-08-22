@@ -17,7 +17,7 @@
   "mcavatar.param.bg_color": "Background color: auto / auto_lighter / auto_darker or hex (#ffffff)",
   "mcavatar.param.fill_background": "Whether to fill the background",
   "mcavatar.param.upscale48": "Upscale to 48x48 scaling",
-  "mcavatar.param.average_color": "Override the average color used for auto outline/bg. Hex color code (e.g. #ff0000) or 'auto' for automatic.",
+  "mcavatar.param.average_color": "Average color for auto outline/bg: hex (#ff0000) or auto",
   "mcavatar.choice.outline_off": "Off",
   "mcavatar.choice.outline_1px": "1px",
   "mcavatar.choice.outline_2px": "2px",
