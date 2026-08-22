@@ -29,5 +29,7 @@
   "mcavatar.error.script_not_found": "内部错误：未找到 Node.js 脚本，请联系管理员。",
   "mcavatar.error.unexpected": "发生意外错误：{error}",
   "mcavatar.attachment_label": "附件",
-  "mcavatar.success": "✅ 已为 **{player}** 生成头像"
+  "mcavatar.success": "✅ 已为 **{player}** 生成头像",
+
+  "whoami.command_description": "我是谁?"
 }

@@ -29,5 +29,7 @@
   "mcavatar.error.script_not_found": "Internal error: Node.js script not found. Please contact admin.",
   "mcavatar.error.unexpected": "Unexpected error: {error}",
   "mcavatar.attachment_label": "attachment",
-  "mcavatar.success": "✅ Avatar generated for **{player}**"
+  "mcavatar.success": "✅ Avatar generated for **{player}**",
+
+  "whoami.command_description": "Who am I?"
 }
