@@ -1,13 +1,10 @@
 {
-  "version": {
-    "command_description": "Show the bot version",
-    "response": "Current version: **{version}**"
-  },
-  "server_info": {
-    "command_description": "Display server system information including CPU, memory usage and Discord API latency",
-    "response": "**Server Information**\nOS: {os_name} {os_release}\nUptime: {uptime}\nCPU: {cpu_percent}% - {cpu_name}\nArchitecture: {arch}, {cpu_count} cores\nMemory: {mem_used} GB / {mem_total} GB ({mem_percent}%)\nDiscord API Latency: {latency_ms} ms",
-    "uptime_format": "{days}d {hours}h {minutes}m",
-    "error_psutil": "The `psutil` library is not installed. Please install it to use this command.",
-    "error_generic": "An error occurred: {error}"
-  }
+  "version.command_description": "Show the bot version",
+  "version.response": "Current version: **{version}**",
+
+  "server_info.command_description": "Display server system information including CPU, memory usage and Discord API latency",
+  "server_info.response": "**Server Information**\nOS: {os_name} {os_release}\nUptime: {uptime}\nCPU: {cpu_percent}% - {cpu_name}\nArchitecture: {arch}, {cpu_count} cores\nMemory: {mem_used} GB / {mem_total} GB ({mem_percent}%)\nDiscord API Latency: {latency_ms} ms",
+  "server_info.uptime_format": "{days}d {hours}h {minutes}m",
+  "server_info.error_psutil": "The `psutil` library is not installed. Please install it to use this command.",
+  "server_info.error_generic": "An error occurred: {error}"
 }
