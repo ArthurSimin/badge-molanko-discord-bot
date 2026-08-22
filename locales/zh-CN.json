@@ -2,5 +2,12 @@
   "version": {
     "command_description": "显示机器人版本",
     "response": "当前版本: **{version}**"
+  },
+  "server_info": {
+    "command_description": "显示服务器系统信息（CPU、内存占用与 Discord API 延迟）",
+    "response": "**服务器信息**\n系统：{os_name} {os_release}\n运行时间：{uptime}\nCPU：{cpu_percent}% - {cpu_name}\n架构：{arch}，{cpu_count} 核\n内存：{mem_used} GB / {mem_total} GB（{mem_percent}%）\nDiscord API 延迟：{latency_ms} ms",
+    "uptime_format": "{days} 天 {hours} 小时 {minutes} 分钟",
+    "error_psutil": "未安装 `psutil` 库，请安装后再使用此命令。",
+    "error_generic": "发生错误：{error}"
   }
 }
