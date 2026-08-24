@@ -6,7 +6,7 @@ from discord import app_commands
 from discord.app_commands import locale_str
 from discord.ext import commands
 
-from utils.i18n import t
+from utils.i18n import locale_for, t
 from utils.mcskin import get_player_image
 
 
@@ -51,7 +51,7 @@ class MinecraftSkinCog(commands.Cog):
         image_type: app_commands.Choice[str] = None,
     ):
         await interaction.response.defer(thinking=True)
-        locale = str(interaction.locale) if interaction.locale else None
+        locale = locale_for(interaction)
 
         img_type = image_type.value if image_type else "skin"
 

@@ -9,7 +9,7 @@ from discord.app_commands import locale_str
 from discord.ext import commands
 from datetime import datetime, timezone
 
-from utils.i18n import t
+from utils.i18n import locale_for, t
 
 try:
     import cpuinfo
@@ -32,7 +32,7 @@ class ServerInfo(commands.Cog):
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def server_info(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
-        locale = str(interaction.locale) if interaction.locale else None
+        locale = locale_for(interaction)
 
         try:
             os_name = platform.system()
