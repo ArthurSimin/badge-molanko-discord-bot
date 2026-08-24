@@ -4,7 +4,7 @@ from discord.app_commands import locale_str
 from discord.ext import commands
 from pathlib import Path
 
-from utils.i18n import t
+from utils.i18n import locale_for, t
 
 
 class Version(commands.Cog):
@@ -26,7 +26,7 @@ class Version(commands.Cog):
     )
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def version(self, interaction: discord.Interaction):
-        locale = str(interaction.locale) if interaction.locale else None
+        locale = locale_for(interaction)
         message = t("version.response", locale=locale, version=self.version)
         await interaction.response.send_message(message)
 
