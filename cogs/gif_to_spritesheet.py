@@ -3,9 +3,11 @@ from typing import Optional
 
 import discord
 from discord import app_commands
+from discord.app_commands import locale_str
 from discord.ext import commands
 
 from utils.gif_spritesheet import process_gif_to_spritesheet
+from utils.i18n import t
 
 
 class GIFToSpritesheet(commands.Cog):
@@ -14,14 +16,29 @@ class GIFToSpritesheet(commands.Cog):
 
     @app_commands.command(
         name="gif_to_spritesheet",
-        description="Convert an animated GIF into a spritesheet (PNG) with all frames arranged in a grid."
+        description=locale_str(
+            "Convert an animated GIF into a spritesheet PNG",
+            i18n_key="gif_to_spritesheet.command_description",
+        ),
     )
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     @app_commands.describe(
-        image="The animated GIF image",
-        cols="Number of frames per row (0 = auto, default 0)",
-        max_width="Maximum width in pixels (optional, auto calculates columns if cols=0)",
-        scale="Upscale factor for the spritesheet (1-8, keeps pixels sharp, default 1)"
+        image=locale_str(
+            "The animated GIF image",
+            i18n_key="gif_to_spritesheet.param.image",
+        ),
+        cols=locale_str(
+            "Frames per row (0 = auto, default 0)",
+            i18n_key="gif_to_spritesheet.param.cols",
+        ),
+        max_width=locale_str(
+            "Max width in px (optional; used when cols=0)",
+            i18n_key="gif_to_spritesheet.param.max_width",
+        ),
+        scale=locale_str(
+            "Upscale factor 1-8 (default 1)",
+            i18n_key="gif_to_spritesheet.param.scale",
+        ),
     )
     async def gif_to_spritesheet(
         self,
@@ -32,18 +49,27 @@ class GIFToSpritesheet(commands.Cog):
         scale: int = 1,
     ):
         await interaction.response.defer(thinking=True)
+        locale = str(interaction.locale) if interaction.locale else None
 
         if scale < 1 or scale > 8:
-            await interaction.followup.send("Scale must be between 1 and 8.")
+            await interaction.followup.send(
+                t("gif_to_spritesheet.error.scale_range", locale=locale)
+            )
             return
         if cols < 0:
-            await interaction.followup.send("Columns cannot be negative.")
+            await interaction.followup.send(
+                t("gif_to_spritesheet.error.cols_negative", locale=locale)
+            )
             return
         if max_width is not None and max_width < 1:
-            await interaction.followup.send("max_width must be at least 1 pixel.")
+            await interaction.followup.send(
+                t("gif_to_spritesheet.error.max_width_min", locale=locale)
+            )
             return
         if not image.content_type or not image.content_type.startswith("image/"):
-            await interaction.followup.send("Please upload a valid image file.")
+            await interaction.followup.send(
+                t("gif_to_spritesheet.error.invalid_image", locale=locale)
+            )
             return
 
         try:
@@ -59,19 +85,25 @@ class GIFToSpritesheet(commands.Cog):
             await interaction.followup.send(str(exc))
             return
         except Exception as exc:
-            await interaction.followup.send(f"An error occurred: {exc}")
+            await interaction.followup.send(
+                t("gif_to_spritesheet.error.generic", locale=locale, error=exc)
+            )
             return
 
         total_frames, actual_cols, rows, frame_w, frame_h, sheet_w, sheet_h = info
         file = discord.File(output, filename="spritesheet.png")
         await interaction.followup.send(
-            content=(
-                "✅ Spritesheet generated:\n"
-                f"• Frames: {total_frames}\n"
-                f"• Grid: {actual_cols}×{rows}\n"
-                f"• Frame size: {frame_w}×{frame_h}\n"
-                f"• Total size: {sheet_w}×{sheet_h}\n"
-                f"• Scale: {scale}×"
+            content=t(
+                "gif_to_spritesheet.success",
+                locale=locale,
+                total_frames=total_frames,
+                actual_cols=actual_cols,
+                rows=rows,
+                frame_w=frame_w,
+                frame_h=frame_h,
+                sheet_w=sheet_w,
+                sheet_h=sheet_h,
+                scale=scale,
             ),
             file=file,
         )
