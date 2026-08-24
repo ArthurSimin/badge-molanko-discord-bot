@@ -15,9 +15,6 @@ def _language_choices() -> list[app_commands.Choice[str]]:
         )
     ]
     for code in list_supported_locales():
-        # Choice name must be static at registration; use English display for the list,
-        # Discord will localize via translator when i18n_key exists for auto only.
-        # For locale codes, use a readable English default name.
         label = {
             "en": "English",
             "zh-CN": "Simplified Chinese",
@@ -55,12 +52,11 @@ class Language(commands.Cog):
         interaction: discord.Interaction,
         language: app_commands.Choice[str] | None = None,
     ):
-        # Reply language for this message: if setting a new one, use it; else current effective
         if language is not None:
             set_user_locale(interaction.user.id, language.value)
             reply_locale = None if language.value == "auto" else language.value
             if reply_locale is None:
-                reply_locale = str(interaction.locale) if interaction.locale else None
+                reply_locale = locale_for(interaction)
             display = locale_display_name(language.value, for_locale=reply_locale)
             await interaction.response.send_message(
                 t(
@@ -72,12 +68,12 @@ class Language(commands.Cog):
             )
             return
 
-        # No argument: show current preference and supported list
         locale = locale_for(interaction)
         pref = get_user_locale(interaction.user.id)
         current = locale_display_name(pref, for_locale=locale)
         supported = ", ".join(
-            locale_display_name(c, for_locale=locale) for c in ["auto", *list_supported_locales()]
+            locale_display_name(c, for_locale=locale)
+            for c in ["auto", *list_supported_locales()]
         )
         await interaction.response.send_message(
             t(
