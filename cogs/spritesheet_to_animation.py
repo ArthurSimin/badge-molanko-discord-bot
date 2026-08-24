@@ -10,7 +10,7 @@ from discord.ext import commands
 from discord.ui import Modal, TextInput, View
 from PIL import Image
 
-from utils.i18n import t
+from utils.i18n import locale_for, t
 
 
 def log_message(msg: str):
@@ -34,7 +34,7 @@ def process_images(data, fw, fh, c, r, dly, start, end, sc, fmt, loss, qual):
             c = sheet_w // fw
             r = sheet_h // fh
             if c == 0 or r == 0:
-                raise ValueError(f"Frame size ({fw}×{fh}) larger than image ({sheet_w}×{sheet_h}).")
+                raise ValueError(f"Frame size ({fw}x{fh}) larger than image ({sheet_w}x{sheet_h}).")
         elif c is None:
             max_frames = (sheet_w // fw) * (sheet_h // fh)
             c = max_frames // r
@@ -55,7 +55,7 @@ def process_images(data, fw, fh, c, r, dly, start, end, sc, fmt, loss, qual):
 
         total = c * r
         if start >= total:
-            raise ValueError(f"Start frame {start} out of range (0–{total-1}).")
+            raise ValueError(f"Start frame {start} out of range (0-{total-1}).")
         if end is None:
             end = total - 1
         else:
@@ -179,7 +179,7 @@ class SpritesheetModal(Modal):
         self.add_item(self.advanced)
 
     async def on_submit(self, interaction: discord.Interaction):
-        locale = self.locale or (str(interaction.locale) if interaction.locale else None)
+        locale = self.locale or locale_for(interaction)
 
         try:
             fw = int(self.frame_width.value)
@@ -338,7 +338,6 @@ class FormatSelectView(View):
         if select:
             self.format = select[0]
         else:
-            # fallback from component
             for child in self.children:
                 if isinstance(child, discord.ui.Select) and child.values:
                     self.format = child.values[0]
@@ -346,15 +345,16 @@ class FormatSelectView(View):
         await interaction.response.defer()
 
     async def next_button(self, interaction: discord.Interaction):
-        # Prefer latest select values if available
         for child in self.children:
             if isinstance(child, discord.ui.Select) and child.values:
                 self.format = child.values[0]
                 break
+        # Refresh locale in case preference changed; prefer stored locale from open
+        locale = self.locale or locale_for(interaction)
         modal = SpritesheetModal(
             image=self.image,
             output_format=self.format,
-            locale=self.locale,
+            locale=locale,
         )
         await interaction.response.send_modal(modal)
         self.stop()
@@ -475,7 +475,7 @@ class SpritesheetToAnimation(commands.Cog):
         quality: int = 80,
     ):
         await interaction.response.defer(thinking=True)
-        locale = str(interaction.locale) if interaction.locale else None
+        locale = locale_for(interaction)
         log_message(f"Slash command invoked by {interaction.user}")
 
         if frame_width < 1 or frame_height < 1:
@@ -568,7 +568,7 @@ class SpritesheetToAnimation(commands.Cog):
     async def extract_spritesheet_context(
         self, interaction: discord.Interaction, message: discord.Message
     ):
-        locale = str(interaction.locale) if interaction.locale else None
+        locale = locale_for(interaction)
         log_message(
             f"Context menu invoked by {interaction.user} on message {message.id}"
         )
