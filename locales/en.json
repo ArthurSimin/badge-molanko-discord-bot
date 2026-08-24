@@ -149,5 +149,13 @@
   "screenshot_web.result.output": "**Output resolution:** {width}x{height}",
   "screenshot_web.result.scale": "**Scale:** {scale}",
   "screenshot_web.result.full_page": "**Full page:** {full_page}",
-  "screenshot_web.result.block_media": "**Block Media:** {block_media}"
+  "screenshot_web.result.block_media": "**Block Media:** {block_media}",
+
+  "language.command_description": "Set the language for bot replies to you",
+  "language.param.language": "Language for replies (Auto follows Discord client)",
+  "language.choice.auto": "Auto",
+  "language.locale.en": "English",
+  "language.locale.zh-CN": "Simplified Chinese",
+  "language.set": "Reply language set to **{language}**.",
+  "language.status": "Current preference: **{current}**\nSupported: {supported}"
 }
