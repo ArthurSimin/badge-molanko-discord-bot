@@ -7,7 +7,7 @@ from discord.app_commands import locale_str
 from discord.ext import commands
 
 from utils.gif_spritesheet import process_gif_to_spritesheet
-from utils.i18n import t
+from utils.i18n import locale_for, t
 
 
 class GIFToSpritesheet(commands.Cog):
@@ -49,7 +49,7 @@ class GIFToSpritesheet(commands.Cog):
         scale: int = 1,
     ):
         await interaction.response.defer(thinking=True)
-        locale = str(interaction.locale) if interaction.locale else None
+        locale = locale_for(interaction)
 
         if scale < 1 or scale > 8:
             await interaction.followup.send(
