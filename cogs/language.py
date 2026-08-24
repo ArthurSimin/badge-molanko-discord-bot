@@ -17,7 +17,7 @@ def _language_choices() -> list[app_commands.Choice[str]]:
     for code in list_supported_locales():
         label = {
             "en": "English",
-            "zh-CN": "Simplified Chinese",
+            "zh-CN": "中文 (中国)",
         }.get(code, code)
         choices.append(
             app_commands.Choice(
@@ -42,7 +42,7 @@ class Language(commands.Cog):
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     @app_commands.describe(
         language=locale_str(
-            "Language for replies (Auto follows Discord client)",
+            "Language for replies",
             i18n_key="language.param.language",
         ),
     )
