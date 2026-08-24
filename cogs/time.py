@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.app_commands import locale_str
 from discord.ext import commands
 
-from utils.i18n import t
+from utils.i18n import locale_for, t
 
 
 class Time(commands.Cog):
@@ -21,7 +21,7 @@ class Time(commands.Cog):
     )
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def time(self, interaction: discord.Interaction):
-        locale = str(interaction.locale) if interaction.locale else None
+        locale = locale_for(interaction)
         now_utc = datetime.now(timezone.utc)
         formatted = now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
         await interaction.response.send_message(
