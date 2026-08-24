@@ -17,6 +17,7 @@ def _language_choices() -> list[app_commands.Choice[str]]:
     for code in list_supported_locales():
         label = {
             "en": "English",
+            "debug": "Debug",
             "zh-CN": "中文 (中国)",
         }.get(code, code)
         choices.append(

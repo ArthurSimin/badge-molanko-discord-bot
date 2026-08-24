@@ -14,7 +14,7 @@ class WhoAmI(commands.Cog):
         user = interaction.user
 
         await interaction.followup.send(
-            f"{user.display_name} `{user.id}`"
+            f"{user.name} `{user.id}`"
         )
 
 
