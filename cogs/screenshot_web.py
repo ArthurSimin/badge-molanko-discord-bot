@@ -1,18 +1,21 @@
 import asyncio
-import discord
-from discord import app_commands
-from discord.ext import commands
+import math
 from io import BytesIO
 from urllib.parse import urlparse
-import math
+
+import discord
+from discord import app_commands
+from discord.app_commands import locale_str
+from discord.ext import commands
 
 from lanlan3292_python_screenshot_web.firefox import capture_screenshot_bytes, normalize_url
+from utils.i18n import t
 from utils.screenshot_security import (
-    is_domain_allowed,
-    resolve_ip_async,
     is_blocked_destination_ip,
     is_cookie_allowed,
+    is_domain_allowed,
     is_fullpage_allowed,
+    resolve_ip_async,
     should_block_media,
 )
 
@@ -31,16 +34,43 @@ class Screenshot(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="screenshot_web", description="Capture a whitelisted web page screenshot")
+    @app_commands.command(
+        name="screenshot_web",
+        description=locale_str(
+            "Capture a whitelisted web page screenshot",
+            i18n_key="screenshot_web.command_description",
+        ),
+    )
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     @app_commands.describe(
-        url="Website URL or domain to capture, e.g. github.com",
-        width="Width in pixels (640-1920, default 1400) – ignored if preset is set",
-        height="Height in pixels (480-1080, default 900) – ignored if preset is set",
-        preset="Select a predefined resolution (overrides width/height and optionally scale)",
-        full_page="Capture the entire scrollable page (default False)",
-        scale="Device pixel ratio (zoom), 0.1-5.0. If not set, preset may choose a suitable value, else 1.0",
-        block_media="Force blocking of images/videos? If True, always block; if False or not set, use default policy.",
+        url=locale_str(
+            "Website URL or domain to capture, e.g. github.com",
+            i18n_key="screenshot_web.param.url",
+        ),
+        width=locale_str(
+            "Width in px 640-1920 (default 1400); ignored if preset set",
+            i18n_key="screenshot_web.param.width",
+        ),
+        height=locale_str(
+            "Height in px 480-1080 (default 900); ignored if preset set",
+            i18n_key="screenshot_web.param.height",
+        ),
+        preset=locale_str(
+            "Predefined resolution (overrides width/height, optional scale)",
+            i18n_key="screenshot_web.param.preset",
+        ),
+        full_page=locale_str(
+            "Capture the entire scrollable page (default False)",
+            i18n_key="screenshot_web.param.full_page",
+        ),
+        scale=locale_str(
+            "Device pixel ratio 0.1-5.0; preset may set default",
+            i18n_key="screenshot_web.param.scale",
+        ),
+        block_media=locale_str(
+            "Force block images/videos; else use default policy",
+            i18n_key="screenshot_web.param.block_media",
+        ),
     )
     @app_commands.choices(
         preset=[app_commands.Choice(name=name, value=name) for name in PRESETS.keys()]
@@ -57,6 +87,7 @@ class Screenshot(commands.Cog):
         block_media: bool | None = None,
     ):
         await interaction.response.defer(thinking=True)
+        locale = str(interaction.locale) if interaction.locale else None
 
         try:
             normalized_url = normalize_url(url)
@@ -68,7 +99,7 @@ class Screenshot(commands.Cog):
             allowed = await asyncio.to_thread(is_domain_allowed, normalized_url)
             if not allowed:
                 await interaction.followup.send(
-                    "This domain is not allowed by the whitelist/blacklist policy.",
+                    t("screenshot_web.error.domain_not_allowed", locale=locale),
                     ephemeral=True,
                 )
                 return
@@ -76,13 +107,21 @@ class Screenshot(commands.Cog):
             parsed = urlparse(normalized_url)
             hostname = parsed.hostname
             if not hostname:
-                await interaction.followup.send("Invalid URL: no hostname found.", ephemeral=True)
+                await interaction.followup.send(
+                    t("screenshot_web.error.no_hostname", locale=locale),
+                    ephemeral=True,
+                )
                 return
 
             ip = await resolve_ip_async(hostname)
             if is_blocked_destination_ip(ip):
                 await interaction.followup.send(
-                    f"Access to private IP addresses is not allowed (resolved {hostname} -> {ip})",
+                    t(
+                        "screenshot_web.error.private_ip",
+                        locale=locale,
+                        hostname=hostname,
+                        ip=ip,
+                    ),
                     ephemeral=True,
                 )
                 return
@@ -113,7 +152,11 @@ class Screenshot(commands.Cog):
             final_allowed = await asyncio.to_thread(is_domain_allowed, final_url)
             if not final_allowed:
                 await interaction.followup.send(
-                    f"Redirected URL '{final_url}' is not allowed by whitelist/blacklist policy.",
+                    t(
+                        "screenshot_web.error.redirect_not_allowed",
+                        locale=locale,
+                        url=final_url,
+                    ),
                     ephemeral=True,
                 )
                 return
@@ -122,7 +165,11 @@ class Screenshot(commands.Cog):
                 fullpage_allowed = await asyncio.to_thread(is_fullpage_allowed, final_url)
                 if not fullpage_allowed:
                     await interaction.followup.send(
-                        f"Full-page screenshot is not allowed for '{final_url}'. Please use a domain from the full-page whitelist.",
+                        t(
+                            "screenshot_web.error.fullpage_not_allowed",
+                            locale=locale,
+                            url=final_url,
+                        ),
                         ephemeral=True,
                     )
                     return
@@ -133,7 +180,12 @@ class Screenshot(commands.Cog):
                 final_ip = await resolve_ip_async(final_hostname)
                 if is_blocked_destination_ip(final_ip):
                     await interaction.followup.send(
-                        f"Redirected URL resolved to private IP address: {final_hostname} -> {final_ip}",
+                        t(
+                            "screenshot_web.error.redirect_private_ip",
+                            locale=locale,
+                            hostname=final_hostname,
+                            ip=final_ip,
+                        ),
                         ephemeral=True,
                     )
                     return
@@ -142,27 +194,51 @@ class Screenshot(commands.Cog):
             await interaction.followup.send(str(exc), ephemeral=True)
             return
         except Exception as exc:
-            await interaction.followup.send(f"Screenshot failed: {exc}", ephemeral=True)
+            await interaction.followup.send(
+                t("screenshot_web.error.failed", locale=locale, error=exc),
+                ephemeral=True,
+            )
             return
 
         def get_image_size(data: bytes) -> tuple[int, int]:
             from PIL import Image
+
             with Image.open(BytesIO(data)) as img:
                 return img.size
 
         output_width, output_height = await asyncio.to_thread(get_image_size, image_bytes)
 
         content_parts = [
-            f"**URL:** {final_url}",
-            f"**Viewport:** {width}x{height}",
-            f"**Output resolution:** {output_width}x{output_height}",
+            t("screenshot_web.result.url", locale=locale, url=final_url),
+            t(
+                "screenshot_web.result.viewport",
+                locale=locale,
+                width=width,
+                height=height,
+            ),
+            t(
+                "screenshot_web.result.output",
+                locale=locale,
+                width=output_width,
+                height=output_height,
+            ),
         ]
         if not math.isclose(float(scale), 1.0):
-            content_parts.append(f"**Scale:** {scale}")
+            content_parts.append(
+                t("screenshot_web.result.scale", locale=locale, scale=scale)
+            )
         if full_page:
-            content_parts.append(f"**Full page:** {full_page}")
+            content_parts.append(
+                t("screenshot_web.result.full_page", locale=locale, full_page=full_page)
+            )
         if final_block:
-            content_parts.append(f"**Block Media:** {final_block}")
+            content_parts.append(
+                t(
+                    "screenshot_web.result.block_media",
+                    locale=locale,
+                    block_media=final_block,
+                )
+            )
 
         await interaction.followup.send(
             content="\n".join(content_parts),
