@@ -5,37 +5,32 @@ import re
 
 import discord
 from discord import app_commands
+from discord.app_commands import locale_str
 from discord.ext import commands
 from mcstatus import JavaServer
+
+from utils.i18n import t
 
 
 class MCMOTDCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # =========================================================
-    # MOTD
-    # =========================================================
-
     @staticmethod
-    def clean_motd(description) -> str:
+    def clean_motd(description, no_motd: str = "No MOTD") -> str:
         """Convert mcstatus MOTD to plain readable text."""
 
         if not description:
-            return "No MOTD"
+            return no_motd
 
-        # Some mcstatus versions return an object
-        # with to_plain_text().
         if hasattr(description, "to_plain_text"):
             try:
                 text = description.to_plain_text()
             except Exception:
                 text = str(description)
         else:
-            # Some versions return a normal string.
             text = str(description)
 
-        # Remove Minecraft formatting codes.
         text = re.sub(
             r"§[0-9a-fk-or]",
             "",
@@ -43,35 +38,16 @@ class MCMOTDCog(commands.Cog):
             flags=re.IGNORECASE,
         )
 
-        # Normalize newlines.
         text = text.replace("\r", "")
 
-        lines = [
-            line.strip()
-            for line in text.split("\n")
-        ]
+        lines = [line.strip() for line in text.split("\n")]
 
         text = "\n".join(lines).strip()
 
-        return text or "No MOTD"
-
-    # =========================================================
-    # Server Icon
-    # =========================================================
+        return text or no_motd
 
     @staticmethod
     def create_icon_file(icon):
-        """
-        Convert mcstatus server icon into a Discord File.
-
-        mcstatus usually returns:
-
-        data:image/png;base64,...
-
-        Discord cannot directly use this as an embed URL,
-        so we upload it as a Discord attachment.
-        """
-
         if not icon:
             return None
 
@@ -81,26 +57,22 @@ class MCMOTDCog(commands.Cog):
         try:
             if icon.startswith("data:image/"):
                 _, encoded = icon.split(",", 1)
-
                 image_data = base64.b64decode(encoded)
-
                 return discord.File(
                     io.BytesIO(image_data),
                     filename="server-icon.png",
                 )
-
         except Exception:
             return None
 
         return None
 
-    # =========================================================
-    # Slash Command
-    # =========================================================
-
     @app_commands.command(
         name="mcmotd",
-        description="Get Minecraft server MOTD, version, and player count",
+        description=locale_str(
+            "Get Minecraft server MOTD, version, and player count",
+            i18n_key="mcmotd.command_description",
+        ),
     )
     @app_commands.allowed_contexts(
         guilds=True,
@@ -108,34 +80,27 @@ class MCMOTDCog(commands.Cog):
         private_channels=True,
     )
     @app_commands.describe(
-        server="Minecraft Java server address, e.g. play.example.com:25565"
+        server=locale_str(
+            "Minecraft Java server address, e.g. play.example.com:25565",
+            i18n_key="mcmotd.param.server",
+        ),
     )
     async def mcmotd(
         self,
         interaction: discord.Interaction,
         server: str,
     ):
-        """Fetch Minecraft Java server status."""
-
-        # =====================================================
-        # Validate server address
-        # =====================================================
-
+        locale = str(interaction.locale) if interaction.locale else None
         server = server.strip()
 
         if not server:
             await interaction.response.send_message(
-                "⚠️ Please provide a Minecraft server address.",
+                t("mcmotd.error.empty_address", locale=locale),
                 ephemeral=True,
             )
             return
 
-        # Tell Discord that the bot is working.
         await interaction.response.defer(thinking=True)
-
-        # =====================================================
-        # Query Minecraft server
-        # =====================================================
 
         try:
             server_obj = JavaServer.lookup(server)
@@ -147,145 +112,81 @@ class MCMOTDCog(commands.Cog):
 
         except asyncio.TimeoutError:
             await interaction.followup.send(
-                f"⏱️ Connection to `{server}` timed out.",
+                t("mcmotd.error.timeout", locale=locale, server=server),
                 ephemeral=True,
             )
             return
 
         except Exception as e:
-            error = str(e).strip() or "Unknown error"
+            error = str(e).strip() or t("mcmotd.error.unknown", locale=locale)
 
             if len(error) > 500:
                 error = error[:500] + "..."
 
             await interaction.followup.send(
-                f"⚠️ Failed to query `{server}`.\n"
-                f"```text\n{error}\n```",
+                t("mcmotd.error.query_failed", locale=locale, server=server, error=error),
                 ephemeral=True,
             )
             return
 
-        # =====================================================
-        # Server information
-        # =====================================================
-
-        motd = self.clean_motd(
-            status.description
-        )
-
-        # Discord Embed field value limit.
+        no_motd = t("mcmotd.no_motd", locale=locale)
+        motd = self.clean_motd(status.description, no_motd=no_motd)
         motd = motd[:1024]
 
-        # -----------------------------------------------------
-        # Version
-        # -----------------------------------------------------
-
-        version = "Unknown"
+        unknown = t("mcmotd.unknown", locale=locale)
+        version = unknown
 
         if status.version:
-            version = getattr(
-                status.version,
-                "name",
-                None,
-            ) or "Unknown"
+            version = getattr(status.version, "name", None) or unknown
 
         version = str(version)[:1024]
 
-        # -----------------------------------------------------
-        # Players
-        # -----------------------------------------------------
-
-        online = getattr(
-            status.players,
-            "online",
-            0,
-        )
-
-        max_players = getattr(
-            status.players,
-            "max",
-            0,
-        )
-
-        # =====================================================
-        # Create Embed
-        # =====================================================
+        online = getattr(status.players, "online", 0)
+        max_players = getattr(status.players, "max", 0)
 
         embed = discord.Embed(
-            title="Minecraft Server Status",
+            title=t("mcmotd.embed.title", locale=locale),
             description=f"`{server}`",
             color=discord.Color.green(),
         )
 
-        # =====================================================
-        # MOTD
-        # =====================================================
-
         embed.add_field(
-            name="MOTD",
+            name=t("mcmotd.field.motd", locale=locale),
             value=motd,
             inline=False,
         )
 
-        # =====================================================
-        # Version
-        # =====================================================
-
         embed.add_field(
-            name="Version",
+            name=t("mcmotd.field.version", locale=locale),
             value=version,
             inline=True,
         )
 
-        # =====================================================
-        # Players
-        # =====================================================
-
         embed.add_field(
-            name="Players",
+            name=t("mcmotd.field.players", locale=locale),
             value=f"{online}/{max_players}",
             inline=True,
         )
 
-        # =====================================================
-        # Online player list
-        # =====================================================
-
         try:
-            sample = getattr(
-                status.players,
-                "sample",
-                None,
-            )
+            sample = getattr(status.players, "sample", None)
 
             if sample:
                 player_names = []
 
                 for player in sample:
-                    name = getattr(
-                        player,
-                        "name",
-                        None,
-                    )
-
+                    name = getattr(player, "name", None)
                     if name:
-                        player_names.append(
-                            str(name)
-                        )
+                        player_names.append(str(name))
 
                 if player_names:
-                    player_text = ", ".join(
-                        player_names
-                    )
+                    player_text = ", ".join(player_names)
 
                     if len(player_text) > 1024:
-                        player_text = (
-                            player_text[:1021]
-                            + "..."
-                        )
+                        player_text = player_text[:1021] + "..."
 
                     embed.add_field(
-                        name="Online Players",
+                        name=t("mcmotd.field.online_players", locale=locale),
                         value=player_text,
                         inline=False,
                     )
@@ -293,42 +194,19 @@ class MCMOTDCog(commands.Cog):
         except Exception:
             pass
 
-        # =====================================================
-        # Server Icon
-        # =====================================================
-
-        icon = getattr(
-            status,
-            "icon",
-            None,
-        )
-
+        icon = getattr(status, "icon", None)
         icon_file = None
 
         try:
-            icon_file = self.create_icon_file(
-                icon
-            )
+            icon_file = self.create_icon_file(icon)
 
             if icon_file:
-                embed.set_thumbnail(
-                    url="attachment://server-icon.png"
-                )
+                embed.set_thumbnail(url="attachment://server-icon.png")
 
         except Exception:
             icon_file = None
 
-        # =====================================================
-        # Footer
-        # =====================================================
-
-        embed.set_footer(
-            text="Minecraft Java Edition • mcstatus"
-        )
-
-        # =====================================================
-        # Send result
-        # =====================================================
+        embed.set_footer(text=t("mcmotd.footer", locale=locale))
 
         try:
             if icon_file:
@@ -337,33 +215,18 @@ class MCMOTDCog(commands.Cog):
                     file=icon_file,
                 )
             else:
-                await interaction.followup.send(
-                    embed=embed,
-                )
+                await interaction.followup.send(embed=embed)
 
         except discord.HTTPException:
-            # If Discord rejects the icon/embed,
-            # try sending without the icon.
             try:
                 embed._thumbnail = None
-
-                await interaction.followup.send(
-                    embed=embed,
-                )
-
+                await interaction.followup.send(embed=embed)
             except Exception:
                 await interaction.followup.send(
-                    "⚠️ Minecraft server was queried successfully, "
-                    "but Discord could not display the result.",
+                    t("mcmotd.error.display_failed", locale=locale),
                     ephemeral=True,
                 )
 
 
-# =============================================================
-# Cog Setup
-# =============================================================
-
 async def setup(bot: commands.Bot):
-    await bot.add_cog(
-        MCMOTDCog(bot)
-    )
+    await bot.add_cog(MCMOTDCog(bot))
