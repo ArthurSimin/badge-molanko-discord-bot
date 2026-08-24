@@ -5,9 +5,12 @@ from typing import Optional
 
 import discord
 from discord import app_commands
+from discord.app_commands import locale_str
 from discord.ext import commands
-from discord.ui import Modal, TextInput, View, Select
+from discord.ui import Modal, TextInput, View
 from PIL import Image
+
+from utils.i18n import t
 
 
 def log_message(msg: str):
@@ -90,7 +93,11 @@ def process_images(data, fw, fh, c, r, dly, start, end, sc, fmt, loss, qual):
             gif_frames = []
             for img in frame_list:
                 rgb = img.convert("RGB")
-                quantized = rgb.quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.FLOYDSTEINBERG)
+                quantized = rgb.quantize(
+                    colors=256,
+                    method=Image.Quantize.MEDIANCUT,
+                    dither=Image.Dither.FLOYDSTEINBERG,
+                )
                 gif_frames.append(quantized)
 
             gif_frames[0].save(
@@ -102,7 +109,7 @@ def process_images(data, fw, fh, c, r, dly, start, end, sc, fmt, loss, qual):
                 duration=dly,
                 optimize=False,
                 disposal=2,
-                palette=None
+                palette=None,
             )
             filename = "animation.gif"
         else:  # webp
@@ -118,7 +125,7 @@ def process_images(data, fw, fh, c, r, dly, start, end, sc, fmt, loss, qual):
                 duration=dly,
                 lossless=loss,
                 quality=qual,
-                method=4
+                method=4,
             )
             filename = "animation.webp"
 
@@ -132,85 +139,124 @@ def process_images(data, fw, fh, c, r, dly, start, end, sc, fmt, loss, qual):
 
 
 class SpritesheetModal(Modal):
-    def __init__(self, image: discord.Attachment, output_format: str):
-        super().__init__(title="Spritesheet Settings")
+    def __init__(self, image: discord.Attachment, output_format: str, locale: str | None = None):
+        super().__init__(title=t("spritesheet.modal.title", locale=locale))
         self.image = image
         self.output_format = output_format
+        self.locale = locale
 
-    frame_width = TextInput(label="Frame Width (px)", default="32", required=True)
-    frame_height = TextInput(label="Frame Height (px)", default="32", required=True)
-    delay = TextInput(label="Delay (ms)", default="100", required=True)
-    scale = TextInput(label="Scale (1-8)", default="2", required=True)
-    advanced = TextInput(
-        label="Advanced (optional)",
-        placeholder="start=0 end=10 lossless=true quality=90",
-        required=False,
-        default=""
-    )
+        self.frame_width = TextInput(
+            label=t("spritesheet.modal.frame_width", locale=locale),
+            default="32",
+            required=True,
+        )
+        self.frame_height = TextInput(
+            label=t("spritesheet.modal.frame_height", locale=locale),
+            default="32",
+            required=True,
+        )
+        self.delay = TextInput(
+            label=t("spritesheet.modal.delay", locale=locale),
+            default="100",
+            required=True,
+        )
+        self.scale = TextInput(
+            label=t("spritesheet.modal.scale", locale=locale),
+            default="2",
+            required=True,
+        )
+        self.advanced = TextInput(
+            label=t("spritesheet.modal.advanced", locale=locale),
+            placeholder=t("spritesheet.modal.advanced_placeholder", locale=locale),
+            required=False,
+            default="",
+        )
+
+        self.add_item(self.frame_width)
+        self.add_item(self.frame_height)
+        self.add_item(self.delay)
+        self.add_item(self.scale)
+        self.add_item(self.advanced)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Parse basic
+        locale = self.locale or (str(interaction.locale) if interaction.locale else None)
+
         try:
             fw = int(self.frame_width.value)
             fh = int(self.frame_height.value)
             dly = int(self.delay.value)
             sc = int(self.scale.value)
         except ValueError as e:
-            await interaction.response.send_message(f"Invalid number: {e}", ephemeral=True)
+            await interaction.response.send_message(
+                t("spritesheet.error.invalid_number", locale=locale, error=e),
+                ephemeral=True,
+            )
             return
 
         if fw < 1 or fh < 1:
-            await interaction.response.send_message("Width and height must be ≥1.", ephemeral=True)
+            await interaction.response.send_message(
+                t("spritesheet.error.size_min", locale=locale),
+                ephemeral=True,
+            )
             return
         if dly < 10:
-            await interaction.response.send_message("Delay must be ≥10 ms.", ephemeral=True)
+            await interaction.response.send_message(
+                t("spritesheet.error.delay_min", locale=locale),
+                ephemeral=True,
+            )
             return
         if sc < 1 or sc > 8:
-            await interaction.response.send_message("Scale must be between 1 and 8.", ephemeral=True)
+            await interaction.response.send_message(
+                t("spritesheet.error.scale_range", locale=locale),
+                ephemeral=True,
+            )
             return
 
-        # Defaults
         start = 0
         end = None
         lossless = False
         quality = 80
 
-        # Parse advanced string
         if self.advanced.value.strip():
             for token in self.advanced.value.split():
-                if '=' in token:
-                    key, val = token.split('=', 1)
+                if "=" in token:
+                    key, val = token.split("=", 1)
                     key = key.strip().lower()
                     val = val.strip()
-                    if key == 'start':
+                    if key == "start":
                         try:
                             start = int(val)
                             if start < 0:
                                 start = 0
-                        except:
+                        except Exception:
                             pass
-                    elif key == 'end':
+                    elif key == "end":
                         try:
                             end = int(val)
-                        except:
+                        except Exception:
                             pass
-                    elif key == 'lossless':
-                        lossless = val.lower() in ('true', '1', 'yes')
-                    elif key == 'quality':
+                    elif key == "lossless":
+                        lossless = val.lower() in ("true", "1", "yes")
+                    elif key == "quality":
                         try:
                             q = int(val)
                             if 1 <= q <= 100:
                                 quality = q
-                        except:
+                        except Exception:
                             pass
 
-        log_message(f"Modal: format={self.output_format}, fw={fw}, fh={fh}, dly={dly}, start={start}, end={end}, sc={sc}, lossless={lossless}, quality={quality}")
+        log_message(
+            f"Modal: format={self.output_format}, fw={fw}, fh={fh}, dly={dly}, "
+            f"start={start}, end={end}, sc={sc}, lossless={lossless}, quality={quality}"
+        )
 
         await interaction.response.defer(thinking=True)
         try:
             img_data = await self.image.read()
         except Exception as e:
-            await interaction.followup.send(f"Failed to read image: {e}")
+            await interaction.followup.send(
+                t("spritesheet.error.read_image", locale=locale, error=e)
+            )
             return
 
         try:
@@ -219,51 +265,97 @@ class SpritesheetModal(Modal):
                 img_data,
                 fw,
                 fh,
-                None, None,
+                None,
+                None,
                 dly,
                 start,
                 end,
                 sc,
                 self.output_format,
                 lossless,
-                quality
+                quality,
             )
         except Exception as e:
-            await interaction.followup.send(f"An error occurred: {e}")
+            await interaction.followup.send(
+                t("spritesheet.error.generic", locale=locale, error=e)
+            )
             return
 
         file = discord.File(result_bytes, filename=info[5])
         frame_count, res_w, res_h, delay_ms, scale_factor, _ = info
         await interaction.followup.send(
-            content=(
-                f"✅ Animation generated ({self.output_format.upper()}):\n"
-                f"• Frames: {frame_count}\n"
-                f"• Resolution: {res_w}×{res_h}\n"
-                f"• Delay: {delay_ms} ms\n"
-                f"• Scale: {scale_factor}×"
+            content=t(
+                "spritesheet.success",
+                locale=locale,
+                format=self.output_format.upper(),
+                frame_count=frame_count,
+                res_w=res_w,
+                res_h=res_h,
+                delay_ms=delay_ms,
+                scale_factor=scale_factor,
             ),
-            file=file
+            file=file,
         )
         log_message("Modal processing finished.")
 
 
 class FormatSelectView(View):
-    def __init__(self, image_attachment):
+    def __init__(self, image_attachment, locale: str | None = None):
         super().__init__(timeout=60)
         self.image = image_attachment
         self.format = "gif"
+        self.locale = locale
 
-    @discord.ui.select(placeholder="Select output format", options=[
-        discord.SelectOption(label="GIF", value="gif", description="Per-frame palettes", emoji="🖼️"),
-        discord.SelectOption(label="WebP", value="webp", description="Modern format", emoji="🌐")
-    ])
-    async def select_format(self, interaction: discord.Interaction, select: discord.ui.Select):
-        self.format = select.values[0]
+        select = discord.ui.Select(
+            placeholder=t("spritesheet.view.format_placeholder", locale=locale),
+            options=[
+                discord.SelectOption(
+                    label=t("spritesheet.view.format_gif_label", locale=locale),
+                    value="gif",
+                    description=t("spritesheet.view.format_gif_desc", locale=locale),
+                    emoji="🖼️",
+                ),
+                discord.SelectOption(
+                    label=t("spritesheet.view.format_webp_label", locale=locale),
+                    value="webp",
+                    description=t("spritesheet.view.format_webp_desc", locale=locale),
+                    emoji="🌐",
+                ),
+            ],
+        )
+        select.callback = self.select_format
+        self.add_item(select)
+
+        button = discord.ui.Button(
+            label=t("spritesheet.view.next_button", locale=locale),
+            style=discord.ButtonStyle.primary,
+        )
+        button.callback = self.next_button
+        self.add_item(button)
+
+    async def select_format(self, interaction: discord.Interaction):
+        select = interaction.data.get("values") if interaction.data else None
+        if select:
+            self.format = select[0]
+        else:
+            # fallback from component
+            for child in self.children:
+                if isinstance(child, discord.ui.Select) and child.values:
+                    self.format = child.values[0]
+                    break
         await interaction.response.defer()
 
-    @discord.ui.button(label="Next →", style=discord.ButtonStyle.primary)
-    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = SpritesheetModal(image=self.image, output_format=self.format)
+    async def next_button(self, interaction: discord.Interaction):
+        # Prefer latest select values if available
+        for child in self.children:
+            if isinstance(child, discord.ui.Select) and child.values:
+                self.format = child.values[0]
+                break
+        modal = SpritesheetModal(
+            image=self.image,
+            output_format=self.format,
+            locale=self.locale,
+        )
         await interaction.response.send_modal(modal)
         self.stop()
 
@@ -272,46 +364,100 @@ class SpritesheetToAnimation(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.ctx_menu = app_commands.ContextMenu(
-            name="Extract Spritesheet",
+            name=locale_str(
+                "Extract Spritesheet",
+                i18n_key="spritesheet.context_name",
+            ),
             callback=self.extract_spritesheet_context,
         )
         try:
-            self.bot.tree.remove_command("Extract Spritesheet", type=app_commands.CommandType.MESSAGE)
-        except:
+            self.bot.tree.remove_command(
+                "Extract Spritesheet", type=app_commands.CommandType.MESSAGE
+            )
+        except Exception:
             pass
         self.bot.tree.add_command(self.ctx_menu)
         log_message("Context menu 'Extract Spritesheet' registered.")
 
     def cog_unload(self):
         try:
-            self.bot.tree.remove_command("Extract Spritesheet", type=app_commands.CommandType.MESSAGE)
+            self.bot.tree.remove_command(
+                "Extract Spritesheet", type=app_commands.CommandType.MESSAGE
+            )
             log_message("Context menu 'Extract Spritesheet' removed.")
-        except:
+        except Exception:
             pass
 
     @app_commands.command(
         name="spritesheet_to_animation",
-        description="Extract frames from a spritesheet and output as GIF or animated WebP"
+        description=locale_str(
+            "Extract frames from a spritesheet as GIF or WebP",
+            i18n_key="spritesheet.command_description",
+        ),
     )
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     @app_commands.describe(
-        image="The spritesheet image (PNG/GIF/WebP)",
-        frame_width="Width of each frame in pixels (default 32)",
-        frame_height="Height of each frame in pixels (default 32)",
-        cols="Number of columns (frames per row). Auto-calculated if not set",
-        rows="Number of rows. Auto-calculated if not set",
-        delay="Delay between frames in milliseconds (default 100)",
-        start_frame="First frame index (0‑based, default 0)",
-        end_frame="Last frame index (inclusive). Omit to use all",
-        scale="Upscale factor (1‑8, default 2)",
-        format="Output format: 'gif' or 'webp' (default gif)",
-        lossless="For WebP: enable lossless compression (default False)",
-        quality="For WebP: quality 1‑100 (default 80)"
+        image=locale_str(
+            "The spritesheet image (PNG/GIF/WebP)",
+            i18n_key="spritesheet.param.image",
+        ),
+        frame_width=locale_str(
+            "Width of each frame in pixels (default 32)",
+            i18n_key="spritesheet.param.frame_width",
+        ),
+        frame_height=locale_str(
+            "Height of each frame in pixels (default 32)",
+            i18n_key="spritesheet.param.frame_height",
+        ),
+        cols=locale_str(
+            "Columns (frames per row); auto if omitted",
+            i18n_key="spritesheet.param.cols",
+        ),
+        rows=locale_str(
+            "Number of rows; auto if omitted",
+            i18n_key="spritesheet.param.rows",
+        ),
+        delay=locale_str(
+            "Delay between frames in ms (default 100)",
+            i18n_key="spritesheet.param.delay",
+        ),
+        start_frame=locale_str(
+            "First frame index (0-based, default 0)",
+            i18n_key="spritesheet.param.start_frame",
+        ),
+        end_frame=locale_str(
+            "Last frame index (inclusive); omit for all",
+            i18n_key="spritesheet.param.end_frame",
+        ),
+        scale=locale_str(
+            "Upscale factor (1-8, default 2)",
+            i18n_key="spritesheet.param.scale",
+        ),
+        format=locale_str(
+            "Output format: gif or webp (default gif)",
+            i18n_key="spritesheet.param.format",
+        ),
+        lossless=locale_str(
+            "WebP: enable lossless compression",
+            i18n_key="spritesheet.param.lossless",
+        ),
+        quality=locale_str(
+            "WebP quality 1-100 (default 80)",
+            i18n_key="spritesheet.param.quality",
+        ),
     )
-    @app_commands.choices(format=[
-        app_commands.Choice(name="GIF", value="gif"),
-        app_commands.Choice(name="WebP", value="webp")
-    ])
+    @app_commands.choices(
+        format=[
+            app_commands.Choice(
+                name=locale_str("GIF", i18n_key="spritesheet.choice.gif"),
+                value="gif",
+            ),
+            app_commands.Choice(
+                name=locale_str("WebP", i18n_key="spritesheet.choice.webp"),
+                value="webp",
+            ),
+        ]
+    )
     async def spritesheet_to_animation(
         self,
         interaction: discord.Interaction,
@@ -326,37 +472,54 @@ class SpritesheetToAnimation(commands.Cog):
         scale: int = 2,
         format: str = "gif",
         lossless: bool = False,
-        quality: int = 80
+        quality: int = 80,
     ):
         await interaction.response.defer(thinking=True)
+        locale = str(interaction.locale) if interaction.locale else None
         log_message(f"Slash command invoked by {interaction.user}")
 
         if frame_width < 1 or frame_height < 1:
-            await interaction.followup.send("Width and height must be ≥1.")
+            await interaction.followup.send(
+                t("spritesheet.error.size_min", locale=locale)
+            )
             return
         if delay < 10:
-            await interaction.followup.send("Delay must be ≥10 ms.")
+            await interaction.followup.send(
+                t("spritesheet.error.delay_min", locale=locale)
+            )
             return
         if start_frame < 0:
-            await interaction.followup.send("Start frame cannot be negative.")
+            await interaction.followup.send(
+                t("spritesheet.error.start_negative", locale=locale)
+            )
             return
         if scale < 1 or scale > 8:
-            await interaction.followup.send("Scale must be between 1 and 8.")
+            await interaction.followup.send(
+                t("spritesheet.error.scale_range", locale=locale)
+            )
             return
         if format not in ("gif", "webp"):
-            await interaction.followup.send("Format must be 'gif' or 'webp'.")
+            await interaction.followup.send(
+                t("spritesheet.error.format", locale=locale)
+            )
             return
         if quality < 1 or quality > 100:
-            await interaction.followup.send("Quality must be between 1 and 100.")
+            await interaction.followup.send(
+                t("spritesheet.error.quality_range", locale=locale)
+            )
             return
         if not image.content_type or not image.content_type.startswith("image/"):
-            await interaction.followup.send("Please upload a valid image file.")
+            await interaction.followup.send(
+                t("spritesheet.error.invalid_image", locale=locale)
+            )
             return
 
         try:
             img_data = await image.read()
         except Exception as e:
-            await interaction.followup.send(f"Failed to read image: {e}")
+            await interaction.followup.send(
+                t("spritesheet.error.read_image", locale=locale, error=e)
+            )
             return
 
         try:
@@ -373,29 +536,42 @@ class SpritesheetToAnimation(commands.Cog):
                 scale,
                 format,
                 lossless,
-                quality
+                quality,
             )
         except Exception as e:
-            await interaction.followup.send(f"An error occurred: {e}")
+            await interaction.followup.send(
+                t("spritesheet.error.generic", locale=locale, error=e)
+            )
             return
 
         file = discord.File(result_bytes, filename=info[5])
         frame_count, res_w, res_h, delay_ms, scale_factor, _ = info
-        extra = f"\n• Lossless: {lossless}\n• Quality: {quality}" if format == "webp" else ""
-        await interaction.followup.send(
-            content=(
-                f"✅ Animation generated ({format.upper()}):\n"
-                f"• Frames: {frame_count}\n"
-                f"• Resolution: {res_w}×{res_h}\n"
-                f"• Delay: {delay_ms} ms\n"
-                f"• Scale: {scale_factor}×"
-                + extra
-            ),
-            file=file
+        content = t(
+            "spritesheet.success",
+            locale=locale,
+            format=format.upper(),
+            frame_count=frame_count,
+            res_w=res_w,
+            res_h=res_h,
+            delay_ms=delay_ms,
+            scale_factor=scale_factor,
         )
+        if format == "webp":
+            content += t(
+                "spritesheet.success_webp_extra",
+                locale=locale,
+                lossless=lossless,
+                quality=quality,
+            )
+        await interaction.followup.send(content=content, file=file)
 
-    async def extract_spritesheet_context(self, interaction: discord.Interaction, message: discord.Message):
-        log_message(f"Context menu invoked by {interaction.user} on message {message.id}")
+    async def extract_spritesheet_context(
+        self, interaction: discord.Interaction, message: discord.Message
+    ):
+        locale = str(interaction.locale) if interaction.locale else None
+        log_message(
+            f"Context menu invoked by {interaction.user} on message {message.id}"
+        )
 
         image_attachment = None
         for att in message.attachments:
@@ -404,14 +580,17 @@ class SpritesheetToAnimation(commands.Cog):
                 break
 
         if not image_attachment:
-            await interaction.response.send_message("No image attachment found.", ephemeral=True)
+            await interaction.response.send_message(
+                t("spritesheet.context.no_image", locale=locale),
+                ephemeral=True,
+            )
             return
 
-        view = FormatSelectView(image_attachment)
+        view = FormatSelectView(image_attachment, locale=locale)
         await interaction.response.send_message(
-            "Select output format, then click **Next** to continue.",
+            t("spritesheet.context.prompt", locale=locale),
             view=view,
-            ephemeral=True
+            ephemeral=True,
         )
         log_message("Format selection view sent.")
 
