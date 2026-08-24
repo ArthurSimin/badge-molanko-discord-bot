@@ -9,7 +9,7 @@ from discord.app_commands import locale_str
 from discord.ext import commands
 from mcstatus import JavaServer
 
-from utils.i18n import t
+from utils.i18n import locale_for, t
 
 
 class MCMOTDCog(commands.Cog):
@@ -90,7 +90,7 @@ class MCMOTDCog(commands.Cog):
         interaction: discord.Interaction,
         server: str,
     ):
-        locale = str(interaction.locale) if interaction.locale else None
+        locale = locale_for(interaction)
         server = server.strip()
 
         if not server:
