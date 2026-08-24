@@ -2,11 +2,11 @@
   "version.command_description": "Show the bot version",
   "version.response": "Current version: **{version}**",
 
-  "server_info.command_description": "Display server system information including CPU, memory usage and Discord API latency",
-  "server_info.response": "**Server Information**\nOS: {os_name} {os_release}\nUptime: {uptime}\nCPU: {cpu_percent}% - {cpu_name}\nArchitecture: {arch}, {cpu_count} cores\nMemory: {mem_used} GB / {mem_total} GB ({mem_percent}%)\nDiscord API Latency: {latency_ms} ms",
-  "server_info.uptime_format": "{days}d {hours}h {minutes}m",
-  "server_info.error_psutil": "The `psutil` library is not installed. Please install it to use this command.",
-  "server_info.error_generic": "An error occurred: {error}",
+  "molanko_status.command_description": "Display Molanko server system information including CPU, memory usage and Discord API latency",
+  "molanko_status.response": "**Molanko Status**\nOS: {os_name} {os_release}\nUptime: {uptime}\nCPU: {cpu_percent}% - {cpu_name}\nArchitecture: {arch}, {cpu_count} cores\nMemory: {mem_used} GB / {mem_total} GB ({mem_percent}%)\nDiscord API Latency: {latency_ms} ms",
+  "molanko_status.uptime_format": "{days}d {hours}h {minutes}m",
+  "molanko_status.error_psutil": "The `psutil` library is not installed. Please install it to use this command.",
+  "molanko_status.error_generic": "An error occurred: {error}",
 
   "mcavatar.command_description": "Generate a pixel-style Minecraft avatar",
   "mcavatar.param.player": "Minecraft username to use (optional if image is provided)",

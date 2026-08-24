@@ -23,14 +23,14 @@ class ServerInfo(commands.Cog):
         self.bot = bot
 
     @app_commands.command(
-        name="server_info",
+        name="molanko_status",
         description=locale_str(
             "Display server system information including CPU, memory usage and Discord API latency",
-            i18n_key="server_info.command_description",
+            i18n_key="molanko_status.command_description",
         ),
     )
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
-    async def server_info(self, interaction: discord.Interaction):
+    async def molanko_status(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
         locale = locale_for(interaction)
 
@@ -61,7 +61,7 @@ class ServerInfo(commands.Cog):
             hours, remainder = divmod(uptime_delta.seconds, 3600)
             minutes, _ = divmod(remainder, 60)
             uptime_str = t(
-                "server_info.uptime_format",
+                "molanko_status.uptime_format",
                 locale=locale,
                 days=days,
                 hours=hours,
@@ -71,7 +71,7 @@ class ServerInfo(commands.Cog):
             latency_ms = round(self.bot.latency * 1000)
 
             response = t(
-                "server_info.response",
+                "molanko_status.response",
                 locale=locale,
                 os_name=os_name,
                 os_release=os_release,
@@ -90,11 +90,11 @@ class ServerInfo(commands.Cog):
 
         except ImportError:
             await interaction.followup.send(
-                t("server_info.error_psutil", locale=locale)
+                t("molanko_status.error_psutil", locale=locale)
             )
         except Exception as exc:
             await interaction.followup.send(
-                t("server_info.error_generic", locale=locale, error=exc)
+                t("molanko_status.error_generic", locale=locale, error=exc)
             )
 
 

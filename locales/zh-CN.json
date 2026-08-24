@@ -2,11 +2,11 @@
   "version.command_description": "显示机器人版本",
   "version.response": "当前版本: **{version}**",
 
-  "server_info.command_description": "显示服务器系统信息 (CPU, 内存占用与 Discord API 延迟)",
-  "server_info.response": "**服务器信息**\n系统: {os_name} {os_release}\n运行时间: {uptime}\nCPU: {cpu_percent}% - {cpu_name}\n架构: {arch}, {cpu_count} 核\n内存: {mem_used} GB / {mem_total} GB ({mem_percent}%)\nDiscord API 延迟: {latency_ms} ms",
-  "server_info.uptime_format": "{days} 天 {hours} 小时 {minutes} 分钟",
-  "server_info.error_psutil": "未安装 `psutil` 库, 请安装后再使用此命令.",
-  "server_info.error_generic": "发生错误: {error}",
+  "molanko_status.command_description": "显示 Molanko 服务系统的信息 (CPU, 内存占用与 Discord API 延迟)",
+  "molanko_status.response": "**Molanko 状态**\n系统: {os_name} {os_release}\n运行时间: {uptime}\nCPU: {cpu_percent}% - {cpu_name}\n架构: {arch}, {cpu_count} 核\n内存: {mem_used} GB / {mem_total} GB ({mem_percent}%)\nDiscord API 延迟: {latency_ms} ms",
+  "molanko_status.uptime_format": "{days} 天 {hours} 小时 {minutes} 分钟",
+  "molanko_status.error_psutil": "未安装 `psutil` 库, 请安装后再使用此命令.",
+  "molanko_status.error_generic": "发生错误: {error}",
 
   "mcavatar.command_description": "生成像素风格的 Minecraft 头像",
   "mcavatar.param.player": "要使用的 Minecraft 用户名 (若已提供图片则可省略)",
