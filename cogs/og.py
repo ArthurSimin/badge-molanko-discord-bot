@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.app_commands import locale_str
 from discord.ext import commands
 
-from utils.i18n import t
+from utils.i18n import locale_for, t
 from utils.og import fetch_og_data
 
 
@@ -27,7 +27,7 @@ class OG(commands.Cog):
     )
     async def og(self, interaction: discord.Interaction, url: str):
         await interaction.response.defer(thinking=True)
-        locale = str(interaction.locale) if interaction.locale else None
+        locale = locale_for(interaction)
 
         try:
             data = await fetch_og_data(url)
