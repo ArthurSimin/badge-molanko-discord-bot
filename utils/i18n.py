@@ -21,13 +21,44 @@ from typing import Any
 import discord
 from discord import app_commands
 
+from utils.user_locale import get_user_locale
+
 logger = logging.getLogger("molanko.i18n")
 
 LOCALES_DIR = Path(__file__).resolve().parents[1] / "locales"
 DEFAULT_LOCALE = "en"
 
+# Human-readable labels for supported locale codes (fallback if not in JSON)
+LOCALE_DISPLAY_NAMES: dict[str, str] = {
+    "auto": "Auto",
+    "en": "English",
+    "zh-CN": "Simplified Chinese",
+}
+
 # Cache loaded locale data: locale_code -> dict
 _cache: dict[str, dict[str, Any]] = {}
+
+
+def list_supported_locales() -> list[str]:
+    """Return locale codes that have a JSON file under locales/ (sorted)."""
+    if not LOCALES_DIR.is_dir():
+        return [DEFAULT_LOCALE]
+    codes = sorted(
+        p.stem for p in LOCALES_DIR.glob("*.json") if p.is_file()
+    )
+    return codes or [DEFAULT_LOCALE]
+
+
+def locale_display_name(code: str, for_locale: str | None = None) -> str:
+    """Localized display name for a locale code (or Auto)."""
+    if code == "auto":
+        return t("language.choice.auto", locale=for_locale)
+    # Prefer language.locale.<code> in translation files
+    key = f"language.locale.{code}"
+    name = t(key, locale=for_locale)
+    if name != key:
+        return name
+    return LOCALE_DISPLAY_NAMES.get(code, code)
 
 
 def _normalize_locale(locale: str | None) -> str:
@@ -35,20 +66,29 @@ def _normalize_locale(locale: str | None) -> str:
     if not locale:
         return DEFAULT_LOCALE
     loc = str(locale).replace("_", "-")
-    # Exact match first
     if (LOCALES_DIR / f"{loc}.json").is_file():
         return loc
-    # Language-only fallback (zh-CN -> zh, en-US -> en)
     lang = loc.split("-")[0].lower()
     if (LOCALES_DIR / f"{lang}.json").is_file():
         return lang
-    # Common aliases
     if lang == "zh":
         if (LOCALES_DIR / "zh-CN.json").is_file():
             return "zh-CN"
         if (LOCALES_DIR / "zh.json").is_file():
             return "zh"
     return DEFAULT_LOCALE
+
+
+def locale_for(interaction: discord.Interaction) -> str | None:
+    """
+    Effective locale for bot replies.
+
+    Uses the user's saved preference when set; otherwise Discord client locale (Auto).
+    """
+    pref = get_user_locale(interaction.user.id)
+    if pref and pref != "auto":
+        return pref
+    return str(interaction.locale) if interaction.locale else None
 
 
 def _load_locale(code: str) -> dict[str, Any]:
@@ -69,11 +109,9 @@ def _load_locale(code: str) -> dict[str, Any]:
 
 def _lookup(data: dict[str, Any], key: str) -> str | None:
     """Resolve a key. Prefer flat dotted keys (Minecraft-style), then nested."""
-    # Flat: "version.response" -> data["version.response"]
     if key in data and not isinstance(data[key], dict):
         return str(data[key])
 
-    # Nested fallback: "version.response" -> data["version"]["response"]
     value: Any = data
     for part in key.split("."):
         if isinstance(value, dict) and part in value:
@@ -135,7 +173,6 @@ class MolankoTranslator(app_commands.Translator):
     ) -> str | None:
         code = _normalize_locale(locale.value if locale else None)
         if code == DEFAULT_LOCALE:
-            # Default is already the English string passed to locale_str
             return None
 
         key = string.extras.get("i18n_key") if string.extras else None
@@ -145,7 +182,6 @@ class MolankoTranslator(app_commands.Translator):
                 return value
             return None
 
-        # Fallback: find which key in DEFAULT_LOCALE has this English message
         message = str(string)
         en_data = _load_locale(DEFAULT_LOCALE)
         found_key = _find_key_by_value(en_data, message)
@@ -166,6 +202,5 @@ def _find_key_by_value(data: dict[str, Any], target: str, prefix: str = "") -> s
             if found:
                 return found
         elif isinstance(v, str) and v == target:
-            # For flat keys the dict key is already the full path (e.g. "version.response")
             return k if not prefix else path
     return None
