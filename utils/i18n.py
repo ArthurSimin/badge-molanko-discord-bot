@@ -1,16 +1,3 @@
-"""Simple i18n helper: load JSON locale files and resolve strings by Discord locale.
-
-Locale files use Minecraft-style flat dotted keys, e.g.::
-
-    {
-        "version.command_description": "Show the bot version",
-        "version.response": "Current version: **{version}**"
-    }
-
-Also provides MolankoTranslator for discord.app_commands command name/description
-localization at sync time.
-"""
-
 from __future__ import annotations
 
 import json
@@ -31,8 +18,19 @@ DEFAULT_LOCALE = "en"
 # Human-readable labels for supported locale codes (fallback if not in JSON)
 LOCALE_DISPLAY_NAMES: dict[str, str] = {
     "auto": "Auto",
+    "debug": "Debug",
+    "unknown": "Unknown",
     "en": "English",
-    "zh-CN": "Simplified Chinese",
+    "en-US": "English (United States)",
+    "en-GB": "English (United Kingdom)",
+    "zh": "中文",
+    "zh-Hans": "中文 (简体)",
+    "zh-Hant": "中文 (繁體)",
+    "zh-CN": "中文 (中国)",
+    "zh-TW": "中文 (台灣)",
+    "zh-HK": "中文 (香港)",
+    "zh-MO": "中文 (澳門)",
+    "zh-SG": "中文 (新加坡)",
 }
 
 # Cache loaded locale data: locale_code -> dict

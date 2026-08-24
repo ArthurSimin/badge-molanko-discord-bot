@@ -154,8 +154,6 @@
   "language.command_description": "Set the language for bot replies to you",
   "language.param.language": "Language for replies",
   "language.choice.auto": "Auto",
-  "language.locale.en": "English",
-  "language.locale.zh-CN": "中文 (中国)",
   "language.set": "Reply language set to **{language}**.",
   "language.status": "Current preference: **{current}**\nSupported: {supported}"
 }
