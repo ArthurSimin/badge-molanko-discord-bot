@@ -3,8 +3,10 @@ from io import BytesIO
 
 import discord
 from discord import app_commands
+from discord.app_commands import locale_str
 from discord.ext import commands
 
+from utils.i18n import t
 from utils.mcskin import get_player_image
 
 
@@ -14,33 +16,46 @@ class MinecraftSkinCog(commands.Cog):
 
     @app_commands.command(
         name="mcskin",
-        description="Fetch a Minecraft player's face or full skin image"
+        description=locale_str(
+            "Fetch a Minecraft player's face or full skin image",
+            i18n_key="mcskin.command_description",
+        ),
     )
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     @app_commands.describe(
-        player="Minecraft username or UUID (with or without hyphens)",
-        image_type="Choose 'face' (avatar) or 'skin' (full body)"
+        player=locale_str(
+            "Minecraft username or UUID (with or without hyphens)",
+            i18n_key="mcskin.param.player",
+        ),
+        image_type=locale_str(
+            "Choose face (avatar) or skin (full body)",
+            i18n_key="mcskin.param.image_type",
+        ),
     )
     @app_commands.choices(
         image_type=[
-            app_commands.Choice(name="Face (avatar)", value="face"),
-            app_commands.Choice(name="Full Skin", value="skin")
+            app_commands.Choice(
+                name=locale_str("Face (avatar)", i18n_key="mcskin.choice.face"),
+                value="face",
+            ),
+            app_commands.Choice(
+                name=locale_str("Full Skin", i18n_key="mcskin.choice.skin"),
+                value="skin",
+            ),
         ]
     )
     async def mcskin(
         self,
         interaction: discord.Interaction,
         player: str,
-        image_type: app_commands.Choice[str] = None
+        image_type: app_commands.Choice[str] = None,
     ):
         await interaction.response.defer(thinking=True)
+        locale = str(interaction.locale) if interaction.locale else None
 
-        # 若未提供，默认使用 "skin"
         img_type = image_type.value if image_type else "skin"
 
         try:
-            # utils.mcskin 使用 urllib.request，是同步阻塞 I/O。
-            # 放到线程池，避免 DNS/HTTP 卡住 Discord.py 的事件循环。
             image_data = await asyncio.to_thread(
                 get_player_image,
                 player,
@@ -48,14 +63,14 @@ class MinecraftSkinCog(commands.Cog):
             )
         except ValueError as e:
             await interaction.followup.send(
-                f"Invalid player identifier: {e}",
-                ephemeral=True
+                t("mcskin.error.invalid_player", locale=locale, error=e),
+                ephemeral=True,
             )
             return
         except Exception as e:
             await interaction.followup.send(
-                f"Failed to retrieve image: {e}",
-                ephemeral=True
+                t("mcskin.error.fetch_failed", locale=locale, error=e),
+                ephemeral=True,
             )
             return
 
