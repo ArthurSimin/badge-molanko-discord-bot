@@ -2,7 +2,7 @@
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate
+source .venv/Scripts/activate
 
 mv cogs/screenshot_web.py cogs/screenshot_web.py.disabled
 
