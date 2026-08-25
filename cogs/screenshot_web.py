@@ -9,7 +9,7 @@ from discord.app_commands import locale_str
 from discord.ext import commands
 
 from lanlan3292_python_screenshot_web.firefox import capture_screenshot_bytes, normalize_url
-from utils.i18n import t
+from utils.i18n import locale_for, t
 from utils.screenshot_security import (
     is_blocked_destination_ip,
     is_cookie_allowed,
@@ -87,7 +87,7 @@ class Screenshot(commands.Cog):
         block_media: bool | None = None,
     ):
         await interaction.response.defer(thinking=True)
-        locale = str(interaction.locale) if interaction.locale else None
+        locale = locale_for(interaction)
 
         try:
             normalized_url = normalize_url(url)
