@@ -1,7 +1,7 @@
 # Molanko Discord Bot
 
 ```bash
-git clone --depth 1 https://github.com/lanlan3292/molanko-discord-bot.git
+git clone --depth 1 --branch main https://github.com/lanlan3292/molanko-discord-bot.git
 cd molanko-discord-bot
 mv cogs/screenshot_web.py cogs/screenshot_web.py.disabled
 ```

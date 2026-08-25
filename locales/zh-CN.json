@@ -155,5 +155,12 @@
   "language.param.language": "回复语言",
   "language.choice.auto": "自动",
   "language.set": "已将回复语言设为 **{language}**.",
-  "language.status": "当前偏好: **{current}**\n支持的语言: {supported}"
+  "language.status": "当前偏好: **{current}**\n支持的语言: {supported}",
+
+  "givecoffee.command_description": "一杯咖啡",
+  "givecoffee.process_description": "显示咖啡制作过程",
+  "givecoffee.step.grind": "(1/3) 🫘 正在研磨咖啡豆...",
+  "givecoffee.step.heat": "(2/3) ♨️ 正在加热热水...",
+  "givecoffee.step.brew": "(3/3) 🫗 正在萃取咖啡...",
+  "givecoffee.done": "您的咖啡好了"
 }
