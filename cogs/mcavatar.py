@@ -1,97 +1,26 @@
 import asyncio
-import json
-import subprocess
-from io import BytesIO
+import tempfile
 from pathlib import Path
 from typing import Optional
 
-import aiohttp
 import discord
 from discord import app_commands
 from discord.app_commands import locale_str
 from discord.ext import commands
 
-from utils.i18n import t
-
-
-# 自定义异常
-class AvatarProcessingError(Exception):
-    pass
-
-
-async def fetch_skin_from_username(username: str) -> bytes:
-    """从 Mojang API 获取玩家皮肤图片"""
-    async with aiohttp.ClientSession() as session:
-        # 1. 获取 UUID
-        async with session.get(
-            f"https://api.mojang.com/users/profiles/minecraft/{username}"
-        ) as resp:
-            if resp.status != 200:
-                raise ValueError(f"Player '{username}' not found")
-            data = await resp.json()
-            uuid = data["id"]
-
-        # 2. 获取皮肤 URL
-        async with session.get(
-            f"https://sessionserver.mojang.com/session/minecraft/profile/{uuid}"
-        ) as resp:
-            if resp.status != 200:
-                raise ValueError("Failed to fetch profile")
-            profile = await resp.json()
-            # 查找 texture 属性
-            textures = next(
-                (prop for prop in profile["properties"] if prop["name"] == "textures"),
-                None,
-            )
-            if not textures:
-                raise ValueError("No textures found in profile")
-            import base64
-            decoded = base64.b64decode(textures["value"]).decode("utf-8")
-            import json as jsonlib
-            texture_data = jsonlib.loads(decoded)
-            skin_url = texture_data["textures"]["SKIN"]["url"]
-
-        # 3. 下载皮肤
-        async with session.get(skin_url) as resp:
-            if resp.status != 200:
-                raise ValueError("Failed to download skin")
-            return await resp.read()
-
-
-async def process_skin_nodejs(image_data: bytes, options: dict) -> bytes:
-    """调用 Node.js 脚本处理皮肤图片"""
-    script_path = Path(__file__).parent.parent / "scripts" / "process_avatar.js"
-    if not script_path.exists():
-        raise FileNotFoundError(f"Node.js script not found at {script_path}")
-
-    options_json = json.dumps(options)
-
-    proc = await asyncio.create_subprocess_exec(
-        "node",
-        str(script_path),
-        options_json,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-    stdout, stderr = await proc.communicate(input=image_data)
-
-    if proc.returncode != 0:
-        error_msg = stderr.decode().strip() or "Unknown Node.js error"
-        raise AvatarProcessingError(f"Node.js processing failed: {error_msg}")
-
-    return stdout
+from utils.i18n import locale_for, t
+from utils.mcskin import get_player_image
 
 
 class MinecraftAvatarCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.script_path = Path(__file__).resolve().parents[1] / "scripts" / "mcavatar.js"
 
     @app_commands.command(
         name="mcavatar",
         description=locale_str(
-            "Generate a pixel-style Minecraft avatar with optional effects",
+            "Generate a pixel-style Minecraft avatar",
             i18n_key="mcavatar.command_description",
         ),
     )
@@ -156,15 +85,15 @@ class MinecraftAvatarCog(commands.Cog):
         player: Optional[str] = None,
         image: Optional[discord.Attachment] = None,
         scale: int = 10,
-        outline: int = 2,
-        outline_color: str = "auto",
-        bg_color: str = "auto",
+        outline: app_commands.Choice[int] = None,
+        outline_color: Optional[str] = None,
+        bg_color: Optional[str] = None,
         fill_background: bool = True,
-        upscale48: bool = True,
+        upscale48: bool = False,
         average_color: Optional[str] = None,
     ):
         await interaction.response.defer(thinking=True)
-        locale = str(interaction.locale) if interaction.locale else None
+        locale = locale_for(interaction)
 
         if not player and not image:
             await interaction.followup.send(
@@ -172,6 +101,8 @@ class MinecraftAvatarCog(commands.Cog):
                 ephemeral=True,
             )
             return
+
+        outline_val = outline.value if outline else 0
 
         try:
             if image:
@@ -181,77 +112,102 @@ class MinecraftAvatarCog(commands.Cog):
                         ephemeral=True,
                     )
                     return
-                image_data = await image.read()
-            else:
-                image_data = await fetch_skin_from_username(player)
-        except Exception as e:
-            await interaction.followup.send(
-                t("mcavatar.error.fetch_skin", locale=locale, error=e),
-                ephemeral=True,
-            )
-            return
-
-        options = {
-            "scale": scale,
-            "outlineMode": outline,
-            "outlineColor": outline_color,
-            "bgColor": bg_color,
-            "fillBackground": fill_background,
-            "upscale48": upscale48,
-        }
-
-        if average_color:
-            if average_color.lower() == "auto":
-                pass
+                skin_data = await image.read()
+                label = t("mcavatar.attachment_label", locale=locale)
             else:
                 try:
-                    hex_str = average_color.lstrip("#")
-                    if len(hex_str) == 3:
-                        hex_str = "".join(c * 2 for c in hex_str)
-                    if len(hex_str) != 6:
-                        raise ValueError("Invalid hex length")
-                    r = int(hex_str[0:2], 16)
-                    g = int(hex_str[2:4], 16)
-                    b = int(hex_str[4:6], 16)
-                    options["averageColor"] = {"r": r, "g": g, "b": b}
-                except Exception:
+                    skin_data = await asyncio.to_thread(
+                        get_player_image, player, img_type="skin"
+                    )
+                    label = player
+                except Exception as e:
+                    await interaction.followup.send(
+                        t("mcavatar.error.fetch_skin", locale=locale, error=e),
+                        ephemeral=True,
+                    )
+                    return
+
+            if average_color and average_color.lower() != "auto":
+                ac = average_color.strip()
+                if not (ac.startswith("#") and len(ac) in (4, 7)):
                     await interaction.followup.send(
                         t("mcavatar.error.invalid_average_color", locale=locale),
                         ephemeral=True,
                     )
                     return
 
-        try:
-            result_data = await process_skin_nodejs(image_data, options)
-        except AvatarProcessingError as e:
-            await interaction.followup.send(
-                t("mcavatar.error.processing", locale=locale, error=e),
-                ephemeral=True,
+            if not self.script_path.is_file():
+                await interaction.followup.send(
+                    t("mcavatar.error.script_not_found", locale=locale),
+                    ephemeral=True,
+                )
+                return
+
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                input_path = tmp_path / "skin.png"
+                output_path = tmp_path / "avatar.png"
+                input_path.write_bytes(skin_data)
+
+                cmd = [
+                    "node",
+                    str(self.script_path),
+                    str(input_path),
+                    str(output_path),
+                    "--scale",
+                    str(scale),
+                    "--outline",
+                    str(outline_val),
+                ]
+                if outline_color:
+                    cmd.extend(["--outline-color", outline_color])
+                if bg_color:
+                    cmd.extend(["--bg-color", bg_color])
+                if fill_background:
+                    cmd.append("--fill-background")
+                if upscale48:
+                    cmd.append("--upscale48")
+                if average_color:
+                    cmd.extend(["--average-color", average_color])
+
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await proc.communicate()
+
+                if proc.returncode != 0:
+                    err = (stderr or stdout or b"").decode("utf-8", errors="replace")
+                    await interaction.followup.send(
+                        t("mcavatar.error.processing", locale=locale, error=err),
+                        ephemeral=True,
+                    )
+                    return
+
+                if not output_path.is_file():
+                    await interaction.followup.send(
+                        t("mcavatar.error.processing", locale=locale, error="no output"),
+                        ephemeral=True,
+                    )
+                    return
+
+                data = output_path.read_bytes()
+
+            file = discord.File(
+                fp=__import__("io").BytesIO(data),
+                filename="avatar.png",
             )
-            return
-        except FileNotFoundError:
             await interaction.followup.send(
-                t("mcavatar.error.script_not_found", locale=locale),
-                ephemeral=True,
+                content=t("mcavatar.success", locale=locale, player=label),
+                file=file,
             )
-            return
+
         except Exception as e:
             await interaction.followup.send(
                 t("mcavatar.error.unexpected", locale=locale, error=e),
                 ephemeral=True,
             )
-            return
-
-        file = discord.File(BytesIO(result_data), filename="avatar.png")
-        player_display = player or t("mcavatar.attachment_label", locale=locale)
-        await interaction.followup.send(
-            content=t(
-                "mcavatar.success",
-                locale=locale,
-                player=player_display,
-            ),
-            file=file,
-        )
 
 
 async def setup(bot: commands.Bot):
