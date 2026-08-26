@@ -148,11 +148,7 @@ class MyBot(commands.Bot):
             len(self.guilds),
         )
 
-        activity = discord.Activity(
-            type=discord.ActivityType.watching,
-            name="/time | /version",
-        )
-        await self.change_presence(status=discord.Status.online, activity=activity)
+        await self.change_presence()
 
     async def on_command(self, ctx: commands.Context) -> None:
         if ctx.command is not None:
