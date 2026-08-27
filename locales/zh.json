@@ -163,5 +163,22 @@
   "givecoffee.step.heat": "(2/3) ♨️ 正在加热热水...",
   "givecoffee.step.brew": "(3/3) 🫗 正在萃取咖啡...",
   "givecoffee.coffee": "☕",
-  "givecoffee.done": "您的咖啡好了"
+  "givecoffee.done": "您的咖啡好了",
+
+  "quote.command_description": "把消息变成引用图片",
+  "quote.context_name": "做成金句",
+  "quote.param.message_id": "要引用的消息 ID (也可右键消息使用上下文菜单)",
+  "quote.param.theme": "主题: dark / light / color / portrait / portrait-light",
+  "quote.choice.dark": "dark",
+  "quote.choice.light": "light",
+  "quote.choice.color": "color",
+  "quote.choice.portrait": "portrait",
+  "quote.choice.portrait_light": "portrait-light",
+  "quote.error.need_message": "请提供 message_id, 或右键消息 → 应用 → 做成引用图.",
+  "quote.error.message_not_found": "找不到该消息, 请检查消息 ID 与所在频道.",
+  "quote.error.no_content": "该消息没有可引用的文字内容",
+  "quote.error.processing": "生成引用图失败: {error}",
+  "quote.error.script_not_found": "内部错误: 未找到 Node.js 脚本, 请联系管理员.",
+  "quote.error.unexpected": "发生意外错误: {error}",
+  "quote.success": "✅ 已生成 **{author}** 的引用图"
 }

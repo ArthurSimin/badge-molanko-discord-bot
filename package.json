@@ -1,5 +1,6 @@
 {
   "dependencies": {
-    "molanko-avatar-generator": "github:lanlan3292/molanko-avatar-generator"
+    "molanko-avatar-generator": "github:lanlan3292/molanko-avatar-generator",
+    "makeitaquote": "^10.3.2"
   }
 }
