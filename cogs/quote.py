@@ -9,12 +9,35 @@ import discord
 from discord import app_commands
 from discord.app_commands import locale_str
 from discord.ext import commands
+from discord.ui import View
 
 from utils.i18n import locale_for, t
 
 
 class QuoteProcessingError(Exception):
     pass
+
+
+# Discord allows at most 25 choices. Stacks always end with CJK-capable fallbacks.
+QUOTE_FONTS: dict[str, str] = {
+    "sc": "Noto Sans SC, Noto Sans TC, Noto Sans JP, sans-serif",
+    "tc": "Noto Sans TC, Noto Sans SC, Noto Sans JP, sans-serif",
+    "serif_sc": "Noto Serif SC, Noto Sans SC, sans-serif",
+    "serif_tc": "Noto Serif TC, Noto Sans TC, sans-serif",
+    "rounded": "M PLUS Rounded 1c, Noto Sans SC, Noto Sans JP, sans-serif",
+    "gothic": "Dela Gothic One, Noto Sans SC, Noto Sans JP, sans-serif",
+    "pixel": "DotGothic16, Noto Sans SC, sans-serif",
+    "mincho": "Zen Old Mincho, Noto Serif SC, Noto Sans SC, sans-serif",
+    "pop": "Hachi Maru Pop, Noto Sans SC, sans-serif",
+    "rock": "RocknRoll One, Noto Sans SC, sans-serif",
+    "mashan": "Ma Shan Zheng, Noto Sans SC, sans-serif",
+    "xiaowei": "ZCOOL XiaoWei, Noto Sans SC, sans-serif",
+    "huangyou": "ZCOOL QingKe HuangYou, Noto Sans SC, sans-serif",
+    "exo": "Exo 2, Noto Sans SC, sans-serif",
+    "script": "Dancing Script, Noto Sans SC, sans-serif",
+}
+
+DEFAULT_FONT_KEY = "sc"
 
 
 async def make_quote_nodejs(options: dict) -> bytes:
@@ -64,6 +87,74 @@ def _message_text(message: discord.Message) -> str:
     return ""
 
 
+def _font_stack(font_key: Optional[str]) -> str:
+    if font_key and font_key in QUOTE_FONTS:
+        return QUOTE_FONTS[font_key]
+    return QUOTE_FONTS[DEFAULT_FONT_KEY]
+
+
+class QuoteFontView(View):
+    """Ephemeral font picker for message context menu."""
+
+    def __init__(
+        self,
+        cog: "QuoteCog",
+        message: discord.Message,
+        locale: str | None,
+    ):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.message = message
+        self.locale = locale
+        self.font_key = DEFAULT_FONT_KEY
+
+        options = [
+            discord.SelectOption(
+                label=t(f"quote.font.{key}", locale=locale),
+                value=key,
+                description=QUOTE_FONTS[key].split(",")[0].strip()[:100],
+                default=(key == DEFAULT_FONT_KEY),
+            )
+            for key in QUOTE_FONTS
+        ]
+        select = discord.ui.Select(
+            placeholder=t("quote.view.font_placeholder", locale=locale),
+            options=options[:25],
+            min_values=1,
+            max_values=1,
+        )
+        select.callback = self.on_select
+        self.add_item(select)
+
+        button = discord.ui.Button(
+            label=t("quote.view.generate_button", locale=locale),
+            style=discord.ButtonStyle.primary,
+        )
+        button.callback = self.on_generate
+        self.add_item(button)
+
+    async def on_select(self, interaction: discord.Interaction) -> None:
+        values = interaction.data.get("values") if interaction.data else None
+        if values:
+            self.font_key = values[0]
+        await interaction.response.defer()
+
+    async def on_generate(self, interaction: discord.Interaction) -> None:
+        for child in self.children:
+            if isinstance(child, discord.ui.Select) and child.values:
+                self.font_key = child.values[0]
+                break
+
+        await interaction.response.defer(thinking=True, ephemeral=False)
+        await self.cog._generate_and_send(
+            interaction,
+            self.message,
+            theme="dark",
+            font_key=self.font_key,
+        )
+        self.stop()
+
+
 class QuoteCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -84,6 +175,7 @@ class QuoteCog(commands.Cog):
         interaction: discord.Interaction,
         message: discord.Message,
         theme: str = "dark",
+        font_key: Optional[str] = None,
     ) -> None:
         locale = locale_for(interaction)
 
@@ -106,6 +198,7 @@ class QuoteCog(commands.Cog):
             "username": username,
             "displayName": display_name,
             "theme": theme or "dark",
+            "font": _font_stack(font_key),
         }
 
         try:
@@ -156,6 +249,10 @@ class QuoteCog(commands.Cog):
             "Theme: dark / light / color / portrait / portrait-light",
             i18n_key="quote.param.theme",
         ),
+        font=locale_str(
+            "Font for the quote text",
+            i18n_key="quote.param.font",
+        ),
     )
     @app_commands.choices(
         theme=[
@@ -182,13 +279,79 @@ class QuoteCog(commands.Cog):
                 ),
                 value="portrait-light",
             ),
-        ]
+        ],
+        font=[
+            app_commands.Choice(
+                name=locale_str("Noto Sans SC", i18n_key="quote.font.sc"),
+                value="sc",
+            ),
+            app_commands.Choice(
+                name=locale_str("Noto Sans TC", i18n_key="quote.font.tc"),
+                value="tc",
+            ),
+            app_commands.Choice(
+                name=locale_str("Noto Serif SC", i18n_key="quote.font.serif_sc"),
+                value="serif_sc",
+            ),
+            app_commands.Choice(
+                name=locale_str("Noto Serif TC", i18n_key="quote.font.serif_tc"),
+                value="serif_tc",
+            ),
+            app_commands.Choice(
+                name=locale_str("M PLUS Rounded", i18n_key="quote.font.rounded"),
+                value="rounded",
+            ),
+            app_commands.Choice(
+                name=locale_str("Dela Gothic One", i18n_key="quote.font.gothic"),
+                value="gothic",
+            ),
+            app_commands.Choice(
+                name=locale_str("DotGothic16", i18n_key="quote.font.pixel"),
+                value="pixel",
+            ),
+            app_commands.Choice(
+                name=locale_str("Zen Old Mincho", i18n_key="quote.font.mincho"),
+                value="mincho",
+            ),
+            app_commands.Choice(
+                name=locale_str("Hachi Maru Pop", i18n_key="quote.font.pop"),
+                value="pop",
+            ),
+            app_commands.Choice(
+                name=locale_str("RocknRoll One", i18n_key="quote.font.rock"),
+                value="rock",
+            ),
+            app_commands.Choice(
+                name=locale_str("Ma Shan Zheng", i18n_key="quote.font.mashan"),
+                value="mashan",
+            ),
+            app_commands.Choice(
+                name=locale_str("ZCOOL XiaoWei", i18n_key="quote.font.xiaowei"),
+                value="xiaowei",
+            ),
+            app_commands.Choice(
+                name=locale_str(
+                    "ZCOOL QingKe HuangYou",
+                    i18n_key="quote.font.huangyou",
+                ),
+                value="huangyou",
+            ),
+            app_commands.Choice(
+                name=locale_str("Exo 2", i18n_key="quote.font.exo"),
+                value="exo",
+            ),
+            app_commands.Choice(
+                name=locale_str("Dancing Script", i18n_key="quote.font.script"),
+                value="script",
+            ),
+        ],
     )
     async def quote(
         self,
         interaction: discord.Interaction,
         message_id: Optional[str] = None,
         theme: str = "dark",
+        font: str = DEFAULT_FONT_KEY,
     ):
         await interaction.response.defer(thinking=True)
         locale = locale_for(interaction)
@@ -220,15 +383,25 @@ class QuoteCog(commands.Cog):
             )
             return
 
-        await self._generate_and_send(interaction, target, theme=theme)
+        await self._generate_and_send(
+            interaction,
+            target,
+            theme=theme,
+            font_key=font,
+        )
 
     async def quote_context(
         self,
         interaction: discord.Interaction,
         message: discord.Message,
     ):
-        await interaction.response.defer(thinking=True)
-        await self._generate_and_send(interaction, message, theme="dark")
+        locale = locale_for(interaction)
+        view = QuoteFontView(self, message, locale)
+        await interaction.response.send_message(
+            t("quote.context.prompt", locale=locale),
+            view=view,
+            ephemeral=True,
+        )
 
 
 async def setup(bot: commands.Bot):
