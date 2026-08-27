@@ -15,20 +15,23 @@ try {
   process.exit(1);
 }
 
-// Prefer Simplified Chinese coverage; fall back to TC / JP for remaining CJK.
-// Default package stack (M PLUS Rounded 1c + Noto Sans JP) misses many CN glyphs.
+// Primary family is first in the stack; used for prefetch.
 const FONT_STACK =
   options.font ||
   'Noto Sans SC, Noto Sans TC, Noto Sans JP, sans-serif';
 
+function primaryFamily(stack) {
+  const first = String(stack).split(',')[0].trim();
+  return first || 'Noto Sans SC';
+}
+
 (async () => {
   try {
-    // Prefetch so the first render does not race font download failures.
+    const primary = primaryFamily(FONT_STACK);
     try {
-      await fonts.use('Noto Sans SC', { weights: [400, 700] });
-    } catch (_)
-    {
-      // Still attempt render; autoFont may fetch on demand.
+      await fonts.use(primary, { weights: [400, 700] });
+    } catch (_) {
+      // autoFont may still fetch on demand
     }
 
     const miq = new MiQ();
