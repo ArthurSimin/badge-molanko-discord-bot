@@ -18,7 +18,11 @@ def _language_choices() -> list[app_commands.Choice[str]]:
         label = {
             "en": "English",
             "debug": "Debug",
+            "zh": "中文",
+            "zh-Hans": "中文 (简体)",
+            "zh-Hant": "中文 (繁體)",
             "zh-CN": "中文 (中国)",
+            "zh-TW": "中文 (台灣)",
         }.get(code, code)
         choices.append(
             app_commands.Choice(

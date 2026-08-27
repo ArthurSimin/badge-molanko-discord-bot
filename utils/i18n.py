@@ -60,21 +60,85 @@ def locale_display_name(code: str, for_locale: str | None = None) -> str:
 
 
 def _normalize_locale(locale: str | None) -> str:
-    """Map Discord locale (e.g. zh-CN, en-US) to our file names."""
+    """
+    Normalize Discord locale to our locale naming convention.
+
+    This function does not perform fallback. Fallback is handled by
+    _locale_fallbacks().
+    """
     if not locale:
         return DEFAULT_LOCALE
-    loc = str(locale).replace("_", "-")
-    if (LOCALES_DIR / f"{loc}.json").is_file():
-        return loc
-    lang = loc.split("-")[0].lower()
-    if (LOCALES_DIR / f"{lang}.json").is_file():
-        return lang
-    if lang == "zh":
-        if (LOCALES_DIR / "zh-CN.json").is_file():
-            return "zh-CN"
-        if (LOCALES_DIR / "zh.json").is_file():
-            return "zh"
-    return DEFAULT_LOCALE
+
+    return str(locale).replace("_", "-")
+
+
+def _locale_fallbacks(locale: str | None) -> list[str]:
+    """
+    Return locale fallback chain from most specific to least specific.
+
+    Examples:
+        zh-CN -> zh-CN -> zh-Hans -> zh -> en
+        zh-TW -> zh-TW -> zh-Hant -> zh -> en
+        zh-HK -> zh-HK -> zh-Hant -> zh -> en
+        zh-MO -> zh-MO -> zh-Hant -> zh -> en
+        zh-SG -> zh-SG -> zh-Hans -> zh -> en
+        en-US -> en-US -> en
+        fr-CA -> fr-CA -> fr -> en
+    """
+    code = _normalize_locale(locale)
+
+    fallbacks: list[str] = []
+
+    def add(value: str) -> None:
+        if value in fallbacks:
+            return
+
+        if (LOCALES_DIR / f"{value}.json").is_file():
+            fallbacks.append(value)
+
+    # Exact locale first.
+    add(code)
+
+    # Chinese regional/script fallbacks.
+    if code == "zh-CN":
+        add("zh-Hans")
+        add("zh")
+
+    elif code == "zh-SG":
+        add("zh-Hans")
+        add("zh")
+
+    elif code in {"zh-TW", "zh-HK", "zh-MO"}:
+        add("zh-Hant")
+        add("zh")
+
+    elif code == "zh-Hans":
+        add("zh")
+
+    elif code == "zh-Hant":
+        add("zh")
+
+    else:
+        # Generic language fallback.
+        #
+        # For example:
+        #   en-US -> en
+        #   fr-CA -> fr
+        #   de-DE -> de
+        lang = code.split("-")[0].lower()
+
+        if lang != code:
+            add(lang)
+
+    # English is always the final fallback.
+    add(DEFAULT_LOCALE)
+
+    # DEFAULT_LOCALE should normally exist, but keep the function
+    # safe if the locale directory is missing or misconfigured.
+    if not fallbacks:
+        return [DEFAULT_LOCALE]
+
+    return fallbacks
 
 
 def locale_for(interaction: discord.Interaction) -> str | None:
@@ -126,25 +190,42 @@ def t(key: str, locale: str | None = None, **kwargs: Any) -> str:
     Translate a key for the given locale.
 
     key format: dotted string e.g. "version.response" (Minecraft-style).
-    Falls back to DEFAULT_LOCALE, then to the key itself.
+
+    Uses the following fallback order:
+
+        zh-CN -> zh-Hans -> zh -> en -> key
+        zh-TW -> zh-Hant -> zh -> en -> key
+        zh-HK -> zh-Hant -> zh -> en -> key
+        zh-MO -> zh-Hant -> zh -> en -> key
+        zh-SG -> zh-Hans -> zh -> en -> key
+
+    For other regional locales:
+
+        xx-YY -> xx -> en -> key
+
     Supports simple str.format(**kwargs).
     """
-    code = _normalize_locale(locale)
-    value = _lookup(_load_locale(code), key)
+    for code in _locale_fallbacks(locale):
+        value = _lookup(_load_locale(code), key)
 
-    if value is None and code != DEFAULT_LOCALE:
-        value = _lookup(_load_locale(DEFAULT_LOCALE), key)
+        if value is None:
+            continue
 
-    if value is None:
-        return key
+        text = value
 
-    text = value
-    if kwargs:
-        try:
-            text = text.format(**kwargs)
-        except (KeyError, ValueError):
-            logger.warning("Format failed for key=%s kwargs=%s", key, kwargs)
-    return text
+        if kwargs:
+            try:
+                text = text.format(**kwargs)
+            except (KeyError, ValueError):
+                logger.warning(
+                    "Format failed for key=%s kwargs=%s",
+                    key,
+                    kwargs,
+                )
+
+        return text
+
+    return key
 
 
 def clear_cache() -> None:
@@ -169,24 +250,41 @@ class MolankoTranslator(app_commands.Translator):
         locale: discord.Locale,
         context: app_commands.TranslationContext,
     ) -> str | None:
-        code = _normalize_locale(locale.value if locale else None)
-        if code == DEFAULT_LOCALE:
+        code = locale.value if locale else None
+        normalized = _normalize_locale(code)
+
+        # English is Discord's default source string, so there is no need
+        # to provide a translation for it.
+        if normalized == DEFAULT_LOCALE:
             return None
 
         key = string.extras.get("i18n_key") if string.extras else None
         if key:
-            value = _lookup(_load_locale(code), key)
-            if value is not None:
-                return value
+            # Do not return English here. Returning None allows Discord
+            # to keep the original/default command text.
+            for fallback in _locale_fallbacks(code):
+                if fallback == DEFAULT_LOCALE:
+                    break
+
+                value = _lookup(_load_locale(fallback), key)
+
+                if value is not None:
+                    return value
+
             return None
 
         message = str(string)
         en_data = _load_locale(DEFAULT_LOCALE)
         found_key = _find_key_by_value(en_data, message)
         if found_key:
-            value = _lookup(_load_locale(code), found_key)
-            if value is not None:
-                return value
+            for fallback in _locale_fallbacks(code):
+                if fallback == DEFAULT_LOCALE:
+                    break
+
+                value = _lookup(_load_locale(fallback), found_key)
+
+                if value is not None:
+                    return value
 
         return None
 
