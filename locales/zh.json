@@ -212,8 +212,9 @@
   "pickapple.quality.ripe": "成熟苹果",
   "pickapple.quality.golden": "金苹果",
   "pickapple.quality.rotten": "烂苹果",
+  "pickapple.quality.sock": "Sock ||(~~可能 Molanko 不知道什么是苹果~~)||",
   "pickapple.embed.title": "🍎 摘到苹果!",
-  "pickapple.embed.description": "你得到了一个 **{quality}**!",
+  "pickapple.embed.description": "你得到了一个 **{quality}**",
   "pickapple.embed.footer": "由 {user} 摘取",
   "pickapple.final": "Molanko 摘到了 {quality}!",
   "pickapple.error.cooldown": "你还在冷却中，请等待 {retry_after} 秒。"

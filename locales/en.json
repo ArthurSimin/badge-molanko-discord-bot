@@ -214,8 +214,10 @@
   "pickapple.quality.ripe": "Ripe Apple",
   "pickapple.quality.golden": "Golden Apple",
   "pickapple.quality.rotten": "Rotten Apple",
+  "pickapple.quality.arthur": "Arthur",
+  "pickapple.quality.sock": "Sock ||(~~Maybe Molanko doesn't know what an apple is.~~)||",
   "pickapple.embed.title": "🍎 Apple Picked!",
-  "pickapple.embed.description": "You got a **{quality}**!",
+  "pickapple.embed.description": "You got a **{quality}**",
   "pickapple.embed.footer": "Picked by {user}",
   "pickapple.final": "Molanko picked {quality}!",
   "pickapple.error.cooldown": "You are on cooldown. Please wait {retry_after} seconds."

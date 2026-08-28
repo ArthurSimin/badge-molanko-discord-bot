@@ -18,7 +18,7 @@ class PickApple(commands.Cog):
         description=locale_str("Pick an apple from the tree", i18n_key="pickapple.command_description"),
     )
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
-    @app_commands.checks.cooldown(1, 60.0)  # 每人每 60 秒一次
+    @app_commands.checks.cooldown(1, 30.0)
     async def pickapple(self, interaction: discord.Interaction):
         locale = locale_for(interaction)
         await interaction.response.defer(thinking=True)
@@ -32,10 +32,10 @@ class PickApple(commands.Cog):
         await asyncio.sleep(4)
 
         # 品质定义与权重
-        qualities = ["common", "ripe", "golden", "rotten"]
-        weights = [0.5, 0.3, 0.1, 0.1]  # 普通 50%，成熟 30%，金苹果 10%，烂苹果 10%
+        qualities = ["common", "ripe", "golden", "rotten", "arthur", "sock"]
+        weights = [0.5, 0.3, 0.1, 0.08, 0, 100.02]
 
-        max_attempts = 5
+        max_attempts = 1
         attempts = 0
         quality = None
 
@@ -61,6 +61,8 @@ class PickApple(commands.Cog):
             "ripe": t("pickapple.quality.ripe", locale=locale),
             "golden": t("pickapple.quality.golden", locale=locale),
             "rotten": t("pickapple.quality.rotten", locale=locale),
+            "arthur": t("pickapple.quality.arthur", locale=locale),
+            "sock": t("pickapple.quality.sock", locale=locale)
         }
         quality_name = quality_names.get(quality, quality)
 
@@ -73,13 +75,15 @@ class PickApple(commands.Cog):
                 "ripe": discord.Color.orange(),
                 "golden": discord.Color.gold(),
                 "rotten": discord.Color.dark_gray(),
+                "arthur": discord.Color.purple(),
+                "sock": discord.Color.dark_gray(),
             }.get(quality, discord.Color.default())
         )
         embed.set_footer(text=t("pickapple.embed.footer", locale=locale, user=interaction.user.display_name))
 
         # 最终消息（编辑原消息为成功提示）
         await interaction.edit_original_response(
-            content=None,
+            content="",
             embed=embed,
         )
 
