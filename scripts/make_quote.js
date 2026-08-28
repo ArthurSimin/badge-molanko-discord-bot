@@ -58,7 +58,7 @@ function isValidPng(buf) {
 
     miq.setTheme(themeName);
     miq.setTheme({
-      text: { font: FONT_STACK },
+      text: { font: FONT_STACK, weight: 'bold' },
       displayName: { font: FONT_STACK },
       username: { font: FONT_STACK },
     });
