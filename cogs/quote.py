@@ -50,6 +50,18 @@ _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _MIN_PNG_BYTES = 500
 
 
+def _extract_png(data: bytes) -> bytes:
+    """Drop any leading text (e.g. makeitaquote console.info on stdout)."""
+    if not data:
+        return data
+    if data.startswith(_PNG_MAGIC):
+        return data
+    idx = data.find(_PNG_MAGIC)
+    if idx < 0:
+        return data
+    return data[idx:]
+
+
 def _validate_png(data: bytes) -> None:
     """Reject empty / non-PNG / zero-size images before Discord upload."""
     if not data:
@@ -59,9 +71,13 @@ def _validate_png(data: bytes) -> None:
             f"Image too small ({len(data)} bytes), likely failed render"
         )
     if not data.startswith(_PNG_MAGIC):
-        head = data[:16].hex()
+        # Show readable prefix when library polluted stdout
+        try:
+            text_head = data[:80].decode("utf-8", errors="replace")
+        except Exception:
+            text_head = data[:16].hex()
         raise QuoteProcessingError(
-            f"Output is not a valid PNG (bytes={len(data)}, head={head})"
+            f"Output is not a valid PNG (bytes={len(data)}, head={text_head!r})"
         )
     if Image is not None:
         try:
@@ -100,8 +116,9 @@ async def make_quote_nodejs(options: dict) -> bytes:
         error_msg = stderr.decode(errors="replace").strip() or "Unknown Node.js error"
         raise QuoteProcessingError(f"Node.js processing failed: {error_msg}")
 
-    _validate_png(stdout)
-    return stdout
+    png = _extract_png(stdout)
+    _validate_png(png)
+    return png
 
 
 def _message_text(message: discord.Message) -> str:
