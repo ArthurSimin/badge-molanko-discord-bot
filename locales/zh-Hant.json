@@ -180,6 +180,7 @@
   "quote.error.processing": "產生引用圖失敗: {error}",
   "quote.error.script_not_found": "內部錯誤: 未找到 Node.js 腳本, 請聯絡管理員.",
   "quote.error.unexpected": "發生意外錯誤: {error}",
+  "quote.error.no_send_permission": "⚠️ 機器人無法在此頻道發訊息（缺少傳送訊息/存取權限），已改為僅你可見。",
   "quote.success": "✅ 已產生 **{author}** 的引用圖",
   "quote.success_public": "{invoker} 引用了 **{author}** · [原始訊息]({url})",
   "quote.done_private": "✅ 引用圖已發送到頻道。",
