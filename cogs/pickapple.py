@@ -12,6 +12,7 @@ from utils.i18n import locale_for, t
 class PickApple(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.max_attempts = 1
 
     @app_commands.command(
         name="pickapple",
@@ -23,41 +24,50 @@ class PickApple(commands.Cog):
         locale = locale_for(interaction)
         await interaction.response.defer(thinking=True)
 
-        # 第一步：前往苹果树
         await interaction.edit_original_response(content=t("pickapple.step.go", locale=locale))
         await asyncio.sleep(3)
 
-        # 第二步：树下等待 – 随机选择一条消息（.4 概率较低）
         wait_keys = [
             "pickapple.step.wait.1",
             "pickapple.step.wait.2",
             "pickapple.step.wait.3",
             "pickapple.step.wait.4",
         ]
-        wait_weights = [0.3, 0.3, 0.3, 0.1]  # .4 只有 10% 概率
+        wait_weights = [0.3, 0.3, 0.3, 0.1]
         selected_wait_key = random.choices(wait_keys, weights=wait_weights, k=1)[0]
         await interaction.edit_original_response(content=t(selected_wait_key, locale=locale))
         await asyncio.sleep(4)
 
-        # 品质与权重（含新增的 watermelon 和 air）
+        # 品质与权重（含 watermelon 和 air）
         qualities = ["common", "ripe", "golden", "rotten", "arthur", "sock", "watermelon", "air"]
         weights = [0.5, 0.3, 0.1, 0.1, 0, 0.02, 0.02, 0.1]
 
-        # 只尝试一次（按你的设定）
-        quality = random.choices(qualities, weights=weights, k=1)[0]
+        max_attempts = self.max_attempts
+        quality = None
 
-        # 如果是烂苹果，可能触发隐藏消息（10% 概率）
-        if quality == "rotten":
-            if random.random() < 0.1:
-                rotten_key = "pickapple.step.rotten.hidden"
-            else:
-                rotten_key = "pickapple.step.rotten"
-            await interaction.edit_original_response(
-                content=t(rotten_key, locale=locale, attempt=1)  # 此处 attempt 为固定值 1
-            )
-            await asyncio.sleep(2)
+        for attempt in range(1, max_attempts + 1):
+            quality = random.choices(qualities, weights=weights, k=1)[0]
 
-        # 所有品质的本地化名称
+            if quality == "rotten":
+                if max_attempts == 1:
+                    base_key = "pickapple.step.rotten"
+                else:
+                    base_key = "pickapple.step.rotten.threw"
+
+                if random.random() < 0.1:
+                    key = base_key + ".hidden"
+                else:
+                    key = base_key
+
+                await interaction.edit_original_response(
+                    content=t(key, locale=locale, attempt=attempt)
+                )
+                await asyncio.sleep(2)
+
+                if attempt < max_attempts:
+                    continue
+            break
+
         quality_names = {
             "common": t("pickapple.quality.common", locale=locale),
             "ripe": t("pickapple.quality.ripe", locale=locale),
@@ -70,7 +80,6 @@ class PickApple(commands.Cog):
         }
         quality_name = quality_names.get(quality, quality)
 
-        # 颜色映射（新增 watermelon 和 air 的颜色）
         color_map = {
             "common": discord.Color.light_gray(),
             "ripe": discord.Color.orange(),
@@ -83,7 +92,6 @@ class PickApple(commands.Cog):
         }
         embed_color = color_map.get(quality, discord.Color.default())
 
-        # 构建 Embed 卡片
         embed = discord.Embed(
             title=t("pickapple.embed.title", locale=locale),
             description=t("pickapple.embed.description", locale=locale, quality=quality_name),
@@ -91,12 +99,10 @@ class PickApple(commands.Cog):
         )
         embed.set_footer(text=t("pickapple.embed.footer", locale=locale, user=interaction.user.display_name))
 
-        # 最终编辑消息（清空文字，仅显示 Embed）
         await interaction.edit_original_response(content="", embed=embed)
 
     @pickapple.error
     async def pickapple_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
-        """冷却时间错误处理"""
         if isinstance(error, app_commands.CommandOnCooldown):
             locale = locale_for(interaction)
             await interaction.response.send_message(
