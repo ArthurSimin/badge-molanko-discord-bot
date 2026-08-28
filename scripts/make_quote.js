@@ -2,9 +2,21 @@
 /**
  * Quote image renderer for molanko-discord-bot.
  * Reads options JSON from argv[2], writes PNG bytes to stdout.
- * All diagnostics go to stderr so they never corrupt the image stream.
+ *
+ * makeitaquote uses console.info for font-download notices; Node's
+ * console.info goes to stdout and would corrupt the PNG stream.
+ * We redirect log/info to stderr before loading the library path that emits them.
  */
+
+// MUST run before any makeitaquote code can notice/warn.
+const _err = console.error.bind(console);
+console.log = (...args) => _err(...args);
+console.info = (...args) => _err(...args);
+
 const { MiQ, fonts } = require('makeitaquote');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const optionsJson = process.argv[2];
 if (!optionsJson) {
@@ -38,29 +50,28 @@ function primaryFamily(stack) {
   return first || 'Noto Sans SC';
 }
 
-/** Accept Buffer or Uint8Array; normalize to Buffer. */
 function toNodeBuffer(data) {
   if (Buffer.isBuffer(data)) return data;
   if (data instanceof Uint8Array) return Buffer.from(data);
   if (data && data.buffer instanceof ArrayBuffer) {
-    return Buffer.from(data.buffer, data.byteOffset || 0, data.byteLength || data.length);
+    return Buffer.from(
+      data.buffer,
+      data.byteOffset || 0,
+      data.byteLength || data.length
+    );
   }
   return null;
 }
 
-/** PNG signature: 89 50 4E 47 0D 0A 1A 0A */
-function isValidPng(buf) {
-  if (!buf || buf.length < 33) return false;
-  return (
-    buf[0] === 0x89 &&
-    buf[1] === 0x50 &&
-    buf[2] === 0x4e &&
-    buf[3] === 0x47 &&
-    buf[4] === 0x0d &&
-    buf[5] === 0x0a &&
-    buf[6] === 0x1a &&
-    buf[7] === 0x0a
-  );
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/** If text was mixed into the buffer, keep from first PNG signature onward. */
+function extractPng(buf) {
+  if (!buf || buf.length < 8) return null;
+  if (buf.subarray(0, 8).equals(PNG_MAGIC)) return buf;
+  const idx = buf.indexOf(PNG_MAGIC);
+  if (idx < 0) return null;
+  return buf.subarray(idx);
 }
 
 (async () => {
@@ -81,8 +92,6 @@ function isValidPng(buf) {
       themeName = 'dark';
     }
 
-    // Single setTheme: preset via extends + font overrides.
-    // Calling setTheme twice can drop the preset (theme appeared broken).
     const miq = new MiQ().setTheme({
       extends: themeName,
       text: { font: FONT_STACK },
@@ -96,8 +105,7 @@ function isValidPng(buf) {
     if (options.displayName) miq.setDisplayName(String(options.displayName));
 
     const raw = await miq.toBuffer('png');
-    const png = toNodeBuffer(raw);
-
+    let png = toNodeBuffer(raw);
     if (!png) {
       console.error(
         `toBuffer returned unexpected type: ${raw == null ? 'null' : typeof raw}`
@@ -105,10 +113,11 @@ function isValidPng(buf) {
       process.exit(1);
     }
 
-    if (!isValidPng(png)) {
-      const head = png.subarray(0, Math.min(16, png.length));
+    png = extractPng(png);
+    if (!png) {
+      const head = (toNodeBuffer(raw) || Buffer.alloc(0)).subarray(0, 64);
       console.error(
-        `Invalid PNG (bytes=${png.length}, head=${head.toString('hex')})`
+        `No PNG signature in output (bytes=${raw && raw.length}, head=${head.toString('utf8').slice(0, 80)})`
       );
       process.exit(1);
     }
@@ -118,9 +127,29 @@ function isValidPng(buf) {
       process.exit(1);
     }
 
-    process.stdout.write(png);
+    // Prefer writing via a temp file then streaming pure bytes — avoids any
+    // late library chatter that might still hit stdout.
+    const tmp = path.join(
+      os.tmpdir(),
+      `molanko-quote-${process.pid}-${Date.now()}.png`
+    );
+    try {
+      fs.writeFileSync(tmp, png);
+      const clean = fs.readFileSync(tmp);
+      process.stdout.write(clean);
+    } finally {
+      try {
+        fs.unlinkSync(tmp);
+      } catch (_) {}
+    }
   } catch (err) {
-    console.error(err && err.stack ? err.stack : err && err.message ? err.message : String(err));
+    console.error(
+      err && err.stack
+        ? err.stack
+        : err && err.message
+          ? err.message
+          : String(err)
+    );
     process.exit(1);
   }
 })();
