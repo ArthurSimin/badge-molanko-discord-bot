@@ -79,10 +79,9 @@ class PickApple(commands.Cog):
 
         # 最终消息（编辑原消息为成功提示）
         await interaction.edit_original_response(
-            content=t("pickapple.final", locale=locale, quality=quality_name)
+            content=None,
+            embed=embed,
         )
-        # 发送 Embed 作为跟随消息
-        await interaction.followup.send(embed=embed)
 
     @pickapple.error
     async def pickapple_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
