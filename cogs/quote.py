@@ -41,6 +41,7 @@ QUOTE_FONTS: dict[str, str] = {
     "xiaowei": "ZCOOL XiaoWei, Noto Sans SC, sans-serif",
     "serif_sc": "Noto Serif SC, Noto Sans SC, sans-serif",
     "tc": "Noto Sans TC, Noto Sans SC, Noto Sans JP, sans-serif",
+    "serif_tc": "Noto Serif TC, Noto Sans TC, sans-serif",
 }
 
 DEFAULT_FONT_KEY = "sc"

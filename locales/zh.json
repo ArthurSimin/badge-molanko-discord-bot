@@ -166,9 +166,9 @@
   "givecoffee.done": "您的咖啡好了",
 
   "quote.command_description": "把消息变成引用图片",
-  "quote.context_name": "做成金句",
-  "quote.param.message_id": "要引用的消息 ID (也可右键消息使用上下文菜单)",
-  "quote.param.theme": "主题: dark / light / color / portrait / portrait-light",
+  "quote.context_name": "做成名句",
+  "quote.param.message_id": "要引用的消息 ID ",
+  "quote.param.theme": "主题",
   "quote.choice.dark": "dark",
   "quote.choice.light": "light",
   "quote.choice.color": "color",
