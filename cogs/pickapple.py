@@ -38,7 +38,6 @@ class PickApple(commands.Cog):
         await interaction.edit_original_response(content=t(selected_wait_key, locale=locale))
         await asyncio.sleep(4)
 
-        # 品质与权重（含 watermelon 和 air）
         qualities = ["common", "ripe", "golden", "rotten", "arthur", "sock", "watermelon", "air"]
         weights = [0.5, 0.3, 0.1, 0.1, 0, 0.02, 0.02, 0.1]
 
@@ -55,14 +54,18 @@ class PickApple(commands.Cog):
                     base_key = "pickapple.step.rotten.threw"
 
                 if random.random() < 0.1:
-                    key = base_key + ".hidden"
+                    for step in range(1, 4):
+                        key = f"{base_key}.hidden.{step}"
+                        await interaction.edit_original_response(
+                            content=t(key, locale=locale, attempt=attempt)
+                        )
+                        await asyncio.sleep(3)
                 else:
                     key = base_key
-
-                await interaction.edit_original_response(
-                    content=t(key, locale=locale, attempt=attempt)
-                )
-                await asyncio.sleep(2)
+                    await interaction.edit_original_response(
+                        content=t(key, locale=locale, attempt=attempt)
+                    )
+                    await asyncio.sleep(2)
 
                 if attempt < max_attempts:
                     continue
