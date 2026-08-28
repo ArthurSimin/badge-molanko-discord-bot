@@ -13,31 +13,69 @@ from discord.ui import View
 
 from utils.i18n import locale_for, t
 
+try:
+    from PIL import Image
+except ImportError:  # pragma: no cover
+    Image = None  # type: ignore
+
 
 class QuoteProcessingError(Exception):
     pass
 
 
-# Discord allows at most 25 choices. Stacks always end with CJK-capable fallbacks.
+# Style-oriented list (not Chinese-only). Every stack keeps Noto Sans SC/JP
+# as fallback so CJK still renders. Discord max 25 choices.
 QUOTE_FONTS: dict[str, str] = {
     "sc": "Noto Sans SC, Noto Sans TC, Noto Sans JP, sans-serif",
-    "tc": "Noto Sans TC, Noto Sans SC, Noto Sans JP, sans-serif",
-    "serif_sc": "Noto Serif SC, Noto Sans SC, sans-serif",
-    "serif_tc": "Noto Serif TC, Noto Sans TC, sans-serif",
     "rounded": "M PLUS Rounded 1c, Noto Sans SC, Noto Sans JP, sans-serif",
     "gothic": "Dela Gothic One, Noto Sans SC, Noto Sans JP, sans-serif",
     "pixel": "DotGothic16, Noto Sans SC, sans-serif",
     "mincho": "Zen Old Mincho, Noto Serif SC, Noto Sans SC, sans-serif",
     "pop": "Hachi Maru Pop, Noto Sans SC, sans-serif",
     "rock": "RocknRoll One, Noto Sans SC, sans-serif",
+    "exo": "Exo 2, Noto Sans SC, sans-serif",
+    "vina": "Vina Sans, Noto Sans SC, sans-serif",
+    "script": "Dancing Script, Noto Sans SC, sans-serif",
+    "inconsolata": "Inconsolata, Noto Sans SC, sans-serif",
     "mashan": "Ma Shan Zheng, Noto Sans SC, sans-serif",
     "xiaowei": "ZCOOL XiaoWei, Noto Sans SC, sans-serif",
-    "huangyou": "ZCOOL QingKe HuangYou, Noto Sans SC, sans-serif",
-    "exo": "Exo 2, Noto Sans SC, sans-serif",
-    "script": "Dancing Script, Noto Sans SC, sans-serif",
+    "serif_sc": "Noto Serif SC, Noto Sans SC, sans-serif",
+    "tc": "Noto Sans TC, Noto Sans SC, Noto Sans JP, sans-serif",
 }
 
 DEFAULT_FONT_KEY = "sc"
+
+# PNG magic: \x89PNG\r\n\x1a\n
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+_MIN_PNG_BYTES = 200
+
+
+def _validate_png(data: bytes) -> None:
+    """Reject empty / non-PNG / zero-size images before Discord upload."""
+    if not data:
+        raise QuoteProcessingError("Empty image data")
+    if len(data) < _MIN_PNG_BYTES:
+        raise QuoteProcessingError(
+            f"Image too small ({len(data)} bytes), likely failed render"
+        )
+    if not data.startswith(_PNG_MAGIC):
+        raise QuoteProcessingError(
+            "Output is not a valid PNG (bad header / corrupted)"
+        )
+    if Image is not None:
+        try:
+            with Image.open(BytesIO(data)) as im:
+                im.verify()
+            with Image.open(BytesIO(data)) as im:
+                w, h = im.size
+                if w < 8 or h < 8:
+                    raise QuoteProcessingError(
+                        f"Image dimensions too small ({w}x{h})"
+                    )
+        except QuoteProcessingError:
+            raise
+        except Exception as e:
+            raise QuoteProcessingError(f"Corrupt PNG: {e}") from e
 
 
 async def make_quote_nodejs(options: dict) -> bytes:
@@ -58,12 +96,10 @@ async def make_quote_nodejs(options: dict) -> bytes:
     stdout, stderr = await proc.communicate()
 
     if proc.returncode != 0:
-        error_msg = stderr.decode().strip() or "Unknown Node.js error"
+        error_msg = stderr.decode(errors="replace").strip() or "Unknown Node.js error"
         raise QuoteProcessingError(f"Node.js processing failed: {error_msg}")
 
-    if not stdout:
-        raise QuoteProcessingError("Node.js returned empty image data")
-
+    _validate_png(stdout)
     return stdout
 
 
@@ -286,18 +322,6 @@ class QuoteCog(commands.Cog):
                 value="sc",
             ),
             app_commands.Choice(
-                name=locale_str("Noto Sans TC", i18n_key="quote.font.tc"),
-                value="tc",
-            ),
-            app_commands.Choice(
-                name=locale_str("Noto Serif SC", i18n_key="quote.font.serif_sc"),
-                value="serif_sc",
-            ),
-            app_commands.Choice(
-                name=locale_str("Noto Serif TC", i18n_key="quote.font.serif_tc"),
-                value="serif_tc",
-            ),
-            app_commands.Choice(
                 name=locale_str("M PLUS Rounded", i18n_key="quote.font.rounded"),
                 value="rounded",
             ),
@@ -322,6 +346,22 @@ class QuoteCog(commands.Cog):
                 value="rock",
             ),
             app_commands.Choice(
+                name=locale_str("Exo 2", i18n_key="quote.font.exo"),
+                value="exo",
+            ),
+            app_commands.Choice(
+                name=locale_str("Vina Sans", i18n_key="quote.font.vina"),
+                value="vina",
+            ),
+            app_commands.Choice(
+                name=locale_str("Dancing Script", i18n_key="quote.font.script"),
+                value="script",
+            ),
+            app_commands.Choice(
+                name=locale_str("Inconsolata", i18n_key="quote.font.inconsolata"),
+                value="inconsolata",
+            ),
+            app_commands.Choice(
                 name=locale_str("Ma Shan Zheng", i18n_key="quote.font.mashan"),
                 value="mashan",
             ),
@@ -330,19 +370,12 @@ class QuoteCog(commands.Cog):
                 value="xiaowei",
             ),
             app_commands.Choice(
-                name=locale_str(
-                    "ZCOOL QingKe HuangYou",
-                    i18n_key="quote.font.huangyou",
-                ),
-                value="huangyou",
+                name=locale_str("Noto Serif SC", i18n_key="quote.font.serif_sc"),
+                value="serif_sc",
             ),
             app_commands.Choice(
-                name=locale_str("Exo 2", i18n_key="quote.font.exo"),
-                value="exo",
-            ),
-            app_commands.Choice(
-                name=locale_str("Dancing Script", i18n_key="quote.font.script"),
-                value="script",
+                name=locale_str("Noto Sans TC", i18n_key="quote.font.tc"),
+                value="tc",
             ),
         ],
     )
