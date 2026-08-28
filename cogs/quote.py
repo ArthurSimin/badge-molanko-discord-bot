@@ -47,7 +47,7 @@ DEFAULT_FONT_KEY = "sc"
 
 # PNG magic: \x89PNG\r\n\x1a\n
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
-_MIN_PNG_BYTES = 200
+_MIN_PNG_BYTES = 500
 
 
 def _validate_png(data: bytes) -> None:
@@ -59,8 +59,9 @@ def _validate_png(data: bytes) -> None:
             f"Image too small ({len(data)} bytes), likely failed render"
         )
     if not data.startswith(_PNG_MAGIC):
+        head = data[:16].hex()
         raise QuoteProcessingError(
-            "Output is not a valid PNG (bad header / corrupted)"
+            f"Output is not a valid PNG (bytes={len(data)}, head={head})"
         )
     if Image is not None:
         try:
