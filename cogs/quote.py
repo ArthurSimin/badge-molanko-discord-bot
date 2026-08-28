@@ -142,6 +142,11 @@ def _font_stack(font_key: Optional[str]) -> str:
     return QUOTE_FONTS[DEFAULT_FONT_KEY]
 
 
+def _quote_file(png_bytes: bytes) -> discord.File:
+    """Fresh File each time — discord.File is single-use after send."""
+    return discord.File(BytesIO(png_bytes), filename="quote.png")
+
+
 class QuoteFontView(View):
     """Ephemeral font picker; finished quote is a public reply to the target."""
 
@@ -278,7 +283,6 @@ class QuoteCog(commands.Cog):
             )
             return
 
-        file = discord.File(BytesIO(png_bytes), filename="quote.png")
         caption = t(
             "quote.success_public",
             locale=locale,
@@ -286,36 +290,59 @@ class QuoteCog(commands.Cog):
             author=display_name,
             url=message.jump_url,
         )
+        mentions = discord.AllowedMentions(users=True, replied_user=False)
 
         if public_channel:
+            posted = False
             try:
                 await message.reply(
                     content=caption,
-                    file=file,
+                    file=_quote_file(png_bytes),
                     mention_author=False,
-                    allowed_mentions=discord.AllowedMentions(
-                        users=True, replied_user=False
-                    ),
+                    allowed_mentions=mentions,
                 )
-            except (discord.HTTPException, discord.Forbidden):
+                posted = True
+            except (discord.Forbidden, discord.HTTPException):
                 channel = message.channel
                 if channel is not None:
-                    await channel.send(
-                        content=caption,
-                        file=file,
-                        allowed_mentions=discord.AllowedMentions(
-                            users=True, replied_user=False
-                        ),
-                    )
-            await interaction.followup.send(
-                t("quote.done_private", locale=locale),
-                ephemeral=True,
-            )
+                    try:
+                        await channel.send(
+                            content=caption,
+                            file=_quote_file(png_bytes),
+                            allowed_mentions=mentions,
+                        )
+                        posted = True
+                    except (discord.Forbidden, discord.HTTPException):
+                        posted = False
+
+            if posted:
+                await interaction.followup.send(
+                    t("quote.done_private", locale=locale),
+                    ephemeral=True,
+                )
+            else:
+                # No channel send permission — deliver privately instead of crashing.
+                await interaction.followup.send(
+                    content=t("quote.error.no_send_permission", locale=locale)
+                    + "\n"
+                    + caption,
+                    file=_quote_file(png_bytes),
+                    ephemeral=True,
+                )
         else:
-            await interaction.followup.send(
-                content=caption,
-                file=file,
-            )
+            try:
+                await interaction.followup.send(
+                    content=caption,
+                    file=_quote_file(png_bytes),
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                await interaction.followup.send(
+                    content=t("quote.error.no_send_permission", locale=locale)
+                    + "\n"
+                    + caption,
+                    file=_quote_file(png_bytes),
+                    ephemeral=True,
+                )
 
     @app_commands.command(
         name="quote",
