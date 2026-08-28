@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/**
+ * Quote image renderer for molanko-discord-bot.
+ * Reads options JSON from argv[2], writes PNG bytes to stdout.
+ * All diagnostics go to stderr so they never corrupt the image stream.
+ */
 const { MiQ, fonts } = require('makeitaquote');
 
 const optionsJson = process.argv[2];
@@ -19,14 +24,33 @@ const FONT_STACK =
   options.font ||
   'Noto Sans SC, Noto Sans TC, Noto Sans JP, sans-serif';
 
+const ALLOWED_THEMES = new Set([
+  'dark',
+  'light',
+  'color',
+  'portrait',
+  'portrait-light',
+  'custom',
+]);
+
 function primaryFamily(stack) {
   const first = String(stack).split(',')[0].trim();
   return first || 'Noto Sans SC';
 }
 
+/** Accept Buffer or Uint8Array; normalize to Buffer. */
+function toNodeBuffer(data) {
+  if (Buffer.isBuffer(data)) return data;
+  if (data instanceof Uint8Array) return Buffer.from(data);
+  if (data && data.buffer instanceof ArrayBuffer) {
+    return Buffer.from(data.buffer, data.byteOffset || 0, data.byteLength || data.length);
+  }
+  return null;
+}
+
 /** PNG signature: 89 50 4E 47 0D 0A 1A 0A */
 function isValidPng(buf) {
-  if (!Buffer.isBuffer(buf) || buf.length < 33) return false;
+  if (!buf || buf.length < 33) return false;
   return (
     buf[0] === 0x89 &&
     buf[1] === 0x50 &&
@@ -44,21 +68,24 @@ function isValidPng(buf) {
     const primary = primaryFamily(FONT_STACK);
     try {
       await fonts.use(primary, { weights: [400, 700] });
-    } catch (_) {
-      // autoFont may still fetch on demand
+    } catch (e) {
+      console.error('font prefetch warning:', e && e.message ? e.message : e);
     }
 
-    const miq = new MiQ();
-
-    // Theme name as string is the documented API; font via second setTheme merge.
-    const themeName =
+    let themeName =
       typeof options.theme === 'string' && options.theme
-        ? options.theme
+        ? options.theme.trim()
         : 'dark';
+    if (!ALLOWED_THEMES.has(themeName)) {
+      console.error(`Unknown theme "${themeName}", falling back to dark`);
+      themeName = 'dark';
+    }
 
-    miq.setTheme(themeName);
-    miq.setTheme({
-      text: { font: FONT_STACK, weight: 'bold' },
+    // Single setTheme: preset via extends + font overrides.
+    // Calling setTheme twice can drop the preset (theme appeared broken).
+    const miq = new MiQ().setTheme({
+      extends: themeName,
+      text: { font: FONT_STACK },
       displayName: { font: FONT_STACK },
       username: { font: FONT_STACK },
     });
@@ -68,23 +95,32 @@ function isValidPng(buf) {
     if (options.username) miq.setUsername(String(options.username));
     if (options.displayName) miq.setDisplayName(String(options.displayName));
 
-    const png = await miq.toBuffer('png');
+    const raw = await miq.toBuffer('png');
+    const png = toNodeBuffer(raw);
 
-    if (!isValidPng(png)) {
+    if (!png) {
       console.error(
-        `Invalid PNG output (bytes=${png && png.length != null ? png.length : 0})`
+        `toBuffer returned unexpected type: ${raw == null ? 'null' : typeof raw}`
       );
       process.exit(1);
     }
 
-    if (png.length < 200) {
+    if (!isValidPng(png)) {
+      const head = png.subarray(0, Math.min(16, png.length));
+      console.error(
+        `Invalid PNG (bytes=${png.length}, head=${head.toString('hex')})`
+      );
+      process.exit(1);
+    }
+
+    if (png.length < 500) {
       console.error(`PNG too small (${png.length} bytes), likely empty render`);
       process.exit(1);
     }
 
     process.stdout.write(png);
   } catch (err) {
-    console.error(err && err.message ? err.message : String(err));
+    console.error(err && err.stack ? err.stack : err && err.message ? err.message : String(err));
     process.exit(1);
   }
 })();
