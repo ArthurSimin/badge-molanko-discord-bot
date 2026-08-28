@@ -38,35 +38,62 @@ class ServerInfo(commands.Cog):
             os_name = platform.system()
             os_release = platform.release()
 
+            # CPU information
+            cpu_name = "Unknown"
+            arch = platform.machine() or "Unknown"
+
             if CPUINFO_AVAILABLE:
-                info = await asyncio.to_thread(cpuinfo.get_cpu_info)
-                cpu_name = info.get("brand_raw", "Unknown")
-                arch = info.get("arch", "Unknown")
-            else:
-                cpu_name = "Unknown"
-                arch = "Unknown"
+                try:
+                    info = await asyncio.to_thread(cpuinfo.get_cpu_info)
+                    cpu_name = info.get("brand_raw", "Unknown")
+                    arch = info.get("arch", arch)
+                except (PermissionError, OSError):
+                    pass
 
-            cpu_percent = psutil.cpu_percent(interval=0)
-            cpu_count = psutil.cpu_count(logical=True)
+            # psutil information
+            try:
+                cpu_percent = psutil.cpu_percent(interval=0)
+            except (PermissionError, OSError):
+                cpu_percent = 0
 
-            mem = psutil.virtual_memory()
-            mem_total = mem.total / (1024 ** 3)
-            mem_used = mem.used / (1024 ** 3)
-            mem_percent = mem.percent
+            try:
+                cpu_count = psutil.cpu_count(logical=True)
+            except (PermissionError, OSError):
+                cpu_count = 0
 
-            boot_time = datetime.fromtimestamp(psutil.boot_time(), tz=timezone.utc)
-            now = datetime.now(timezone.utc)
-            uptime_delta = now - boot_time
-            days = uptime_delta.days
-            hours, remainder = divmod(uptime_delta.seconds, 3600)
-            minutes, _ = divmod(remainder, 60)
-            uptime_str = t(
-                "molanko_status.uptime_format",
-                locale=locale,
-                days=days,
-                hours=hours,
-                minutes=minutes,
-            )
+            try:
+                mem = psutil.virtual_memory()
+                mem_total = mem.total / (1024 ** 3)
+                mem_used = mem.used / (1024 ** 3)
+                mem_percent = mem.percent
+            except (PermissionError, OSError):
+                mem_total = 0
+                mem_used = 0
+                mem_percent = 0
+
+            # Boot time / uptime
+            try:
+                boot_timestamp = psutil.boot_time()
+                boot_time = datetime.fromtimestamp(
+                    boot_timestamp,
+                    tz=timezone.utc,
+                )
+                now = datetime.now(timezone.utc)
+                uptime_delta = now - boot_time
+
+                days = uptime_delta.days
+                hours, remainder = divmod(uptime_delta.seconds, 3600)
+                minutes, _ = divmod(remainder, 60)
+
+                uptime_str = t(
+                    "molanko_status.uptime_format",
+                    locale=locale,
+                    days=days,
+                    hours=hours,
+                    minutes=minutes,
+                )
+            except (PermissionError, OSError):
+                uptime_str = "Unavailable"
 
             latency_ms = round(self.bot.latency * 1000)
 
@@ -88,13 +115,13 @@ class ServerInfo(commands.Cog):
 
             await interaction.followup.send(response)
 
-        except ImportError:
-            await interaction.followup.send(
-                t("molanko_status.error_psutil", locale=locale)
-            )
         except Exception as exc:
             await interaction.followup.send(
-                t("molanko_status.error_generic", locale=locale, error=exc)
+                t(
+                    "molanko_status.error_generic",
+                    locale=locale,
+                    error=exc,
+                )
             )
 
 
