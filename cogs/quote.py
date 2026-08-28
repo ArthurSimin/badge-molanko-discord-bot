@@ -23,8 +23,6 @@ class QuoteProcessingError(Exception):
     pass
 
 
-# Style-oriented list (not Chinese-only). Every stack keeps Noto Sans SC/JP
-# as fallback so CJK still renders. Discord max 25 choices.
 QUOTE_FONTS: dict[str, str] = {
     "sc": "Noto Sans SC, Noto Sans TC, Noto Sans JP, sans-serif",
     "rounded": "M PLUS Rounded 1c, Noto Sans SC, Noto Sans JP, sans-serif",
@@ -46,13 +44,11 @@ QUOTE_FONTS: dict[str, str] = {
 
 DEFAULT_FONT_KEY = "sc"
 
-# PNG magic: \x89PNG\r\n\x1a\n
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _MIN_PNG_BYTES = 500
 
 
 def _extract_png(data: bytes) -> bytes:
-    """Drop any leading text (e.g. makeitaquote console.info on stdout)."""
     if not data:
         return data
     if data.startswith(_PNG_MAGIC):
@@ -64,7 +60,6 @@ def _extract_png(data: bytes) -> bytes:
 
 
 def _validate_png(data: bytes) -> None:
-    """Reject empty / non-PNG / zero-size images before Discord upload."""
     if not data:
         raise QuoteProcessingError("Empty image data")
     if len(data) < _MIN_PNG_BYTES:
@@ -72,7 +67,6 @@ def _validate_png(data: bytes) -> None:
             f"Image too small ({len(data)} bytes), likely failed render"
         )
     if not data.startswith(_PNG_MAGIC):
-        # Show readable prefix when library polluted stdout
         try:
             text_head = data[:80].decode("utf-8", errors="replace")
         except Exception:
@@ -149,18 +143,20 @@ def _font_stack(font_key: Optional[str]) -> str:
 
 
 class QuoteFontView(View):
-    """Ephemeral font picker for message context menu."""
+    """Ephemeral font picker; finished quote is a public reply to the target."""
 
     def __init__(
         self,
         cog: "QuoteCog",
         message: discord.Message,
         locale: str | None,
+        invoker: discord.abc.User,
     ):
         super().__init__(timeout=120)
         self.cog = cog
         self.message = message
         self.locale = locale
+        self.invoker = invoker
         self.font_key = DEFAULT_FONT_KEY
 
         options = [
@@ -200,12 +196,14 @@ class QuoteFontView(View):
                 self.font_key = child.values[0]
                 break
 
-        await interaction.response.defer(thinking=True, ephemeral=False)
+        await interaction.response.defer(ephemeral=True, thinking=True)
         await self.cog._generate_and_send(
             interaction,
             self.message,
             theme="dark",
             font_key=self.font_key,
+            invoker=self.invoker,
+            public_channel=True,
         )
         self.stop()
 
@@ -231,8 +229,11 @@ class QuoteCog(commands.Cog):
         message: discord.Message,
         theme: str = "dark",
         font_key: Optional[str] = None,
+        invoker: Optional[discord.abc.User] = None,
+        public_channel: bool = False,
     ) -> None:
         locale = locale_for(interaction)
+        invoker = invoker or interaction.user
 
         text = _message_text(message)
         if not text:
@@ -278,14 +279,43 @@ class QuoteCog(commands.Cog):
             return
 
         file = discord.File(BytesIO(png_bytes), filename="quote.png")
-        await interaction.followup.send(
-            content=t(
-                "quote.success",
-                locale=locale,
-                author=display_name,
-            ),
-            file=file,
+        caption = t(
+            "quote.success_public",
+            locale=locale,
+            invoker=invoker.mention,
+            author=display_name,
+            url=message.jump_url,
         )
+
+        if public_channel:
+            try:
+                await message.reply(
+                    content=caption,
+                    file=file,
+                    mention_author=False,
+                    allowed_mentions=discord.AllowedMentions(
+                        users=True, replied_user=False
+                    ),
+                )
+            except (discord.HTTPException, discord.Forbidden):
+                channel = message.channel
+                if channel is not None:
+                    await channel.send(
+                        content=caption,
+                        file=file,
+                        allowed_mentions=discord.AllowedMentions(
+                            users=True, replied_user=False
+                        ),
+                    )
+            await interaction.followup.send(
+                t("quote.done_private", locale=locale),
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                content=caption,
+                file=file,
+            )
 
     @app_commands.command(
         name="quote",
@@ -440,6 +470,8 @@ class QuoteCog(commands.Cog):
             target,
             theme=theme,
             font_key=font,
+            invoker=interaction.user,
+            public_channel=False,
         )
 
     async def quote_context(
@@ -448,7 +480,7 @@ class QuoteCog(commands.Cog):
         message: discord.Message,
     ):
         locale = locale_for(interaction)
-        view = QuoteFontView(self, message, locale)
+        view = QuoteFontView(self, message, locale, invoker=interaction.user)
         await interaction.response.send_message(
             t("quote.context.prompt", locale=locale),
             view=view,

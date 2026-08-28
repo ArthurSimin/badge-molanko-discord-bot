@@ -181,6 +181,8 @@
   "quote.error.script_not_found": "內部錯誤: 未找到 Node.js 腳本, 請聯絡管理員.",
   "quote.error.unexpected": "發生意外錯誤: {error}",
   "quote.success": "✅ 已產生 **{author}** 的引用圖",
+  "quote.success_public": "{invoker} 引用了 **{author}** · [原始訊息]({url})",
+  "quote.done_private": "✅ 引用圖已發送到頻道。",
   "quote.param.font": "引用文字字型",
   "quote.view.font_placeholder": "選擇字型",
   "quote.view.generate_button": "產生",

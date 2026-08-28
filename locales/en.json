@@ -181,6 +181,8 @@
   "quote.error.script_not_found": "Internal error: Node.js script not found. Please contact admin.",
   "quote.error.unexpected": "Unexpected error: {error}",
   "quote.success": "✅ Quote of **{author}**",
+  "quote.success_public": "{invoker} quoted **{author}** · [original message]({url})",
+  "quote.done_private": "✅ Quote posted in the channel.",
   "quote.param.font": "Font for the quote text",
   "quote.view.font_placeholder": "Select a font",
   "quote.view.generate_button": "Generate",
@@ -199,5 +201,7 @@
   "quote.font.xiaowei": "ZCOOL XiaoWei",
   "quote.font.huangyou": "ZCOOL QingKe HuangYou",
   "quote.font.exo": "Exo 2",
-  "quote.font.script": "Dancing Script"
+  "quote.font.script": "Dancing Script",
+  "quote.font.vina": "Vina Sans",
+  "quote.font.inconsolata": "Inconsolata"
 }
