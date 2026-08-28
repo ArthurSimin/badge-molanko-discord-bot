@@ -99,7 +99,7 @@
   "og.field.site_name": "站点名称",
   "og.field.type": "类型",
   "og.field.image_size": "图片尺寸",
-  "og.na": "无",
+  "og.na": "N/A",
 
   "gif_to_spritesheet.command_description": "将动态 GIF 转换为精灵图 PNG",
   "gif_to_spritesheet.param.image": "动态 GIF 图片",
@@ -166,7 +166,7 @@
   "givecoffee.done": "您的咖啡好了",
 
   "quote.command_description": "把消息变成引用图片",
-  "quote.context_name": "做成名句",
+  "quote.context_name": "做成名言图",
   "quote.param.message_id": "要引用的消息 ID ",
   "quote.param.theme": "主题",
   "quote.choice.dark": "dark",
@@ -180,7 +180,7 @@
   "quote.error.processing": "生成引用图失败: {error}",
   "quote.error.script_not_found": "内部错误: 未找到 Node.js 脚本, 请联系管理员.",
   "quote.error.unexpected": "发生意外错误: {error}",
-  "quote.error.no_send_permission": "⚠️ 机器人无法在此频道发消息（缺少发送消息/访问权限），已改为仅你可见。",
+  "quote.error.no_send_permission": "⚠️ 无法在此频道发消息 (缺少发送消息/访问权限)",
   "quote.success": "✅ 已生成 **{author}** 的引用图",
   "quote.success_public": "{invoker} 引用了 [{author}的消息]({url})",
   "quote.done_private": "✅ 引用图已发送到频道。",
@@ -202,5 +202,19 @@
   "quote.font.xiaowei": "站酷小薇",
   "quote.font.huangyou": "站酷庆科黄油体",
   "quote.font.exo": "Exo 2",
-  "quote.font.script": "Dancing Script (英文花体)"
+  "quote.font.script": "Dancing Script (英文花体)",
+
+  "pickapple.command_description": "从树上摘一个苹果",
+  "pickapple.step.go": "Molanko 正在前往苹果树...",
+  "pickapple.step.wait": "Molanko 正在树下等待苹果掉落...",
+  "pickapple.step.rotten": "Molanko 检查后发现苹果坏了，扔掉了它，继续等待... (尝试 {attempt})",
+  "pickapple.quality.common": "普通苹果",
+  "pickapple.quality.ripe": "成熟苹果",
+  "pickapple.quality.golden": "金苹果",
+  "pickapple.quality.rotten": "烂苹果",
+  "pickapple.embed.title": "🍎 摘到苹果!",
+  "pickapple.embed.description": "你得到了一个 **{quality}**!",
+  "pickapple.embed.footer": "由 {user} 摘取",
+  "pickapple.final": "Molanko 摘到了 {quality}!",
+  "pickapple.error.cooldown": "你还在冷却中，请等待 {retry_after} 秒。"
 }
