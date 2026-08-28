@@ -59,7 +59,10 @@ class PickApple(commands.Cog):
                         await interaction.edit_original_response(
                             content=t(key, locale=locale, attempt=attempt)
                         )
-                        await asyncio.sleep(3)
+                        if step == 3:
+                            await asyncio.sleep(3)   # 第三步等待 3 秒
+                        else:
+                            await asyncio.sleep(1.5) # 前两步各等待 1.5 秒
                 else:
                     key = base_key
                     await interaction.edit_original_response(
