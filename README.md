@@ -1,8 +1,8 @@
 # Molanko Discord Bot
 
 ```bash
-git clone --depth 1 --branch main https://github.com/ArthurSimin/badge-molanko-discord-bot.git
-cd badge-molanko-discord-bot
+git clone --depth 1 --branch main https://github.com/lanlan3292/molanko-discord-bot.git
+cd molanko-discord-bot
 mv cogs/screenshot_web.py cogs/screenshot_web.py.disabled
 ```
 
@@ -27,6 +27,9 @@ cp .env.example discord_bot.env
 * `TOKEN` — your Discord bot token (required)
 * `BADGEWORKS_API_URL` — URL of a Badgeworks API server (default `http://localhost:8080`)
 * `BADGEWORKS_API_KEY` — API key for that server
+
+Both `BADGEWORKS_*` variables are optional. The bot runs without them; only the
+`/badge` command requires a Badgeworks API server.
 
 ## Badge command (`/badge`)
 
