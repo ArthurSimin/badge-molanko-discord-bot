@@ -39,7 +39,7 @@ class PickApple(commands.Cog):
         await asyncio.sleep(4)
 
         qualities = ["common", "ripe", "golden", "rotten", "arthur", "sock", "watermelon", "air"]
-        weights = [0.5, 0.3, 0.1, 0.1, 0, 0.02, 0.02, 0.1]
+        weights = [0.6, 0.2, 0.1, 0.1, 0, 0.02, 0.02, 0.1]
 
         max_attempts = self.max_attempts
         quality = None
